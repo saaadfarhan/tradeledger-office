@@ -1,0 +1,190 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: oklch(0.975 0.012 250);
+    --foreground: oklch(0.245 0.025 258);
+    --card: oklch(0.995 0.004 250);
+    --card-foreground: oklch(0.245 0.025 258);
+    --popover: oklch(0.995 0.004 250);
+    --popover-foreground: oklch(0.245 0.025 258);
+    --primary: oklch(0.54 0.16 252);
+    --primary-foreground: oklch(0.99 0.004 250);
+    --secondary: oklch(0.935 0.025 245);
+    --secondary-foreground: oklch(0.30 0.045 255);
+    --muted: oklch(0.95 0.014 250);
+    --muted-foreground: oklch(0.49 0.025 255);
+    --accent: oklch(0.93 0.035 205);
+    --accent-foreground: oklch(0.28 0.045 235);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.89 0.018 250);
+    --input: oklch(0.89 0.018 250);
+    --ring: oklch(0.63 0.13 250);
+    --chart-1: oklch(0.62 0.16 250);
+    --chart-2: oklch(0.67 0.13 175);
+    --chart-3: oklch(0.72 0.14 80);
+    --chart-4: oklch(0.66 0.17 315);
+    --chart-5: oklch(0.63 0.17 35);
+    --radius: 0.75rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+    --background: oklch(0.205 0.025 258);
+    --foreground: oklch(0.94 0.012 250);
+    --card: oklch(0.245 0.028 258);
+    --card-foreground: oklch(0.94 0.012 250);
+    --popover: oklch(0.255 0.03 258);
+    --popover-foreground: oklch(0.94 0.012 250);
+    --primary: oklch(0.72 0.13 245);
+    --primary-foreground: oklch(0.21 0.04 260);
+    --secondary: oklch(0.31 0.03 258);
+    --secondary-foreground: oklch(0.92 0.014 250);
+    --muted: oklch(0.29 0.028 258);
+    --muted-foreground: oklch(0.73 0.022 250);
+    --accent: oklch(0.32 0.04 225);
+    --accent-foreground: oklch(0.94 0.012 250);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(0.42 0.025 258);
+    --input: oklch(0.42 0.025 258);
+    --ring: oklch(0.72 0.13 245);
+    --chart-1: oklch(0.72 0.13 245);
+    --chart-2: oklch(0.72 0.13 175);
+    --chart-3: oklch(0.78 0.14 85);
+    --chart-4: oklch(0.73 0.16 315);
+    --chart-5: oklch(0.72 0.16 35);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+.print-root { display: none; }
+.print-sheet { color: #111; background: #fff; font: 10pt/1.4 Arial, sans-serif; }
+.print-preview-sheet { box-sizing: border-box; width: min(210mm, 100%); min-height: 297mm; margin-inline: auto; padding: 16mm; box-shadow: 0 2px 14px rgb(0 0 0 / 14%); }
+.print-company { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px 16px; border-bottom: 2px solid #222; padding-bottom: 12px; }
+.print-brand { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.print-logo { display: block; flex: 0 1 auto; width: auto; max-width: 24mm; height: auto; max-height: 22mm; object-fit: contain; }
+.print-company-copy { min-width: 0; }
+.print-company h1 { margin: 0 0 3px; font-size: 18pt; overflow-wrap: anywhere; }
+.print-company-details { display: flex; flex-wrap: wrap; gap: 2px 12px; color: #444; }
+.print-company-details span { max-width: 100%; overflow-wrap: anywhere; }
+.print-date { max-width: 38mm; margin: 1px 0; color: #555; font-size: 8pt; text-align: right; overflow-wrap: anywhere; }
+.print-document-heading { margin: 18px 0 12px; text-align: center; }
+.print-document-heading h2 { margin: 0; font-size: 15pt; text-transform: uppercase; }
+.print-document-heading p { margin: 3px 0 0; color: #444; }
+.print-table { width: 100%; border-collapse: collapse; }
+.print-table th, .print-table td { border: 1px solid #999; padding: 6px 7px; text-align: left; vertical-align: top; }
+.print-table td { overflow-wrap: anywhere; }
+.print-table th { background: #eee; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.print-table tr { break-inside: avoid; }
+.print-total { margin-top: 12px; text-align: right; font-size: 12pt; }
+.print-footer { margin-top: 22px; border-top: 1px solid #aaa; padding-top: 6px; color: #555; font-size: 8pt; }
+.print-challan { font-size: 10pt; }
+.print-challan .print-company { grid-template-columns: minmax(0, 1fr) minmax(55mm, 0.8fr); align-items: center; gap: 8mm; border-bottom: 2px solid #222; padding-bottom: 5mm; }
+.print-challan .print-brand { align-items: center; gap: 4mm; }
+.print-challan .print-logo { max-width: 25mm; max-height: 24mm; }
+.print-challan .print-company h1 { margin-bottom: 2mm; font-size: 17pt; }
+.print-challan .print-company-details { flex-direction: column; gap: 1px; font-size: 8.5pt; }
+.print-challan-title { min-width: 0; border: 1px solid #555; padding: 3mm 4mm; text-align: right; }
+.print-challan-title h2 { margin: 0; font-size: 17pt; font-weight: 700; text-transform: uppercase; }
+.print-challan-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 5mm 0 4mm; border: 1px solid #777; }
+.print-challan-meta div { min-width: 0; padding: 2.5mm 3mm; }
+.print-challan-meta div + div { border-left: 1px solid #aaa; }
+.print-challan-meta dt { margin: 0 0 1mm; color: #555; font-size: 7.5pt; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.print-challan-meta dd { margin: 0; overflow-wrap: anywhere; font-weight: 700; }
+.print-challan-party { display: flex; min-height: 14mm; flex-direction: column; justify-content: center; gap: 1mm; margin: 0 0 4mm; border: 1px solid #aaa; padding: 2mm 3mm; }
+.print-challan-party span { color: #555; font-size: 7.5pt; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.print-challan-party strong { font-size: 11pt; font-weight: 700; }
+.print-challan .print-table { table-layout: fixed; }
+.print-challan .print-table th { background: #e8e8e8; }
+.print-challan .print-table th:nth-child(1), .print-challan .print-table td:nth-child(1) { width: 7%; text-align: center; }
+.print-challan .print-table th:nth-child(2), .print-challan .print-table td:nth-child(2) { width: 15%; }
+.print-challan .print-table th:nth-child(3), .print-challan .print-table td:nth-child(3) { width: 37%; }
+.print-challan .print-table th:nth-child(4), .print-challan .print-table td:nth-child(4) { width: 13%; text-align: right; }
+.print-challan .print-table th:nth-child(5), .print-challan .print-table td:nth-child(5) { width: 14%; text-align: right; white-space: nowrap; }
+.print-challan .print-table th:nth-child(6), .print-challan .print-table td:nth-child(6) { width: 14%; text-align: right; white-space: nowrap; }
+.print-challan .print-table tbody tr:nth-child(even) { background: #f7f7f7; }
+.print-challan-total { display: flex; justify-content: flex-end; gap: 12mm; margin-top: 0; border: 1px solid #555; border-top: 0; padding: 3mm 4mm; font-size: 11pt; }
+.print-challan-signatures { display: flex; justify-content: space-between; gap: 12mm; margin-top: 24mm; color: #444; font-size: 8.5pt; }
+.print-challan-signatures span { min-width: 35mm; border-top: 1px solid #777; padding-top: 2mm; text-align: center; }
+@media print {
+  @page { size: A4 portrait; margin: 16mm; }
+  body.printing-document { background: white !important; color: #111 !important; }
+  body.printing-document > :not(#print-root) { display: none !important; }
+  body.printing-document #print-root { display: block !important; }
+  body.printing-document .print-sheet { display: block; }
+}

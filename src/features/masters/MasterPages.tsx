@@ -1,0 +1,93 @@
+import { Fragment, useEffect, useState } from 'react'
+import { ChevronDown, ChevronRight, CornerDownRight, Plus, Search, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field as UiField, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import type { Account, Bank, Item, StockType } from '@/types'
+import { ConfirmActionDialog } from '@/components/feedback/ConfirmActionDialog'
+import { FormSectionHeading } from '@/components/forms/FormSectionHeading'
+import { formatMoney as money } from '@/lib/formatters'
+import { FormSelect } from '@/components/forms/Fields'
+
+export function MasterPage({ title, description, search, onSearch, children }: { title: string; description: string; search: string; onSearch: (value: string) => void; children: React.ReactNode }) {
+  return <section className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-semibold tracking-tight">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div><div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search records" value={search} onChange={(event) => onSearch(event.target.value)} /></div></div>{children}</section>
+}
+
+type AccountTreeRow = { account: Account; depth: number; hasChildren: boolean }
+
+function buildAccountTree(accounts: Account[], query: string): AccountTreeRow[] {
+  const matches = new Set(accounts.filter((account) => `${account.code} ${account.description}`.toLowerCase().includes(query.trim().toLowerCase())).map((account) => account.code))
+  const included = new Set(matches)
+  for (const account of accounts) {
+    if (!matches.has(account.code)) continue
+    let parentCode = account.parentCode
+    while (parentCode && !included.has(parentCode)) {
+      included.add(parentCode)
+      parentCode = accounts.find((candidate) => candidate.code === parentCode)?.parentCode ?? null
+    }
+  }
+  const children = new Map<string, Account[]>()
+  for (const account of accounts) {
+    if (!included.has(account.code) || !account.parentCode || !accounts.some((candidate) => candidate.code === account.parentCode)) continue
+    children.set(account.parentCode, [...(children.get(account.parentCode) ?? []), account])
+  }
+  const visible: AccountTreeRow[] = []
+  const visited = new Set<string>()
+  const visit = (account: Account, depth: number) => {
+    if (visited.has(account.code)) return
+    visited.add(account.code)
+    const descendants = children.get(account.code) ?? []
+    visible.push({ account, depth, hasChildren: descendants.length > 0 })
+    for (const child of descendants) visit(child, depth + 1)
+  }
+  for (const account of accounts) {
+    if (included.has(account.code) && (!account.parentCode || !accounts.some((candidate) => candidate.code === account.parentCode))) visit(account, 0)
+  }
+  for (const account of accounts) if (included.has(account.code) && !visited.has(account.code)) visit(account, 0)
+  return visible
+}
+
+export function AccountsTable({ accounts, query, onSave, onDelete }: { accounts: Account[]; query: string; onSave: (value: Account & { __baseline?: Partial<Account> }) => Promise<void>; onDelete: (code: string) => Promise<void> }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  useEffect(() => { setCollapsed(new Set()) }, [query])
+  const treeRows = buildAccountTree(accounts, query)
+  const shownRows: AccountTreeRow[] = []
+  const hiddenByCollapsedParent = new Set<string>()
+  for (const row of treeRows) {
+    if (row.account.parentCode && hiddenByCollapsedParent.has(row.account.parentCode)) hiddenByCollapsedParent.add(row.account.code)
+    else shownRows.push(row)
+    if (row.hasChildren && collapsed.has(row.account.code)) hiddenByCollapsedParent.add(row.account.code)
+  }
+  const rows = shownRows.map(({ account }) => [account.code, account.description, accounts.find((parent) => parent.code === account.parentCode)?.description ?? '—', account.accountType, `${money(account.openingBalance)} ${account.openingBalanceSide === 'CREDIT' ? 'Cr' : 'Dr'}`])
+  const records = shownRows.map(({ account }) => ({ code: account.code, description: account.description, parentCode: account.parentCode ?? '', openingBalance: String(account.openingBalance), openingBalanceSide: account.openingBalanceSide, accountType: account.accountType }))
+  return <MasterTable idKind="account" title="Accounts" createLabel="Add account" columns={['Code', 'Description', 'Parent account', 'Statement type', 'Opening balance', '']} rows={rows} records={records} baselineRecords={shownRows.map(({ account }) => account)} treeRows={shownRows.map(({ account, depth, hasChildren }) => ({ code: account.code, depth, hasChildren, collapsed: collapsed.has(account.code), onToggle: () => setCollapsed((current) => { const next = new Set(current); if (next.has(account.code)) next.delete(account.code); else next.add(account.code); return next }) }))} fields={[{ key: 'code', label: 'Account code', section: 'Account details', auto: true }, { key: 'description', label: 'Description' }, { key: 'parentCode', label: 'Parent account', type: 'select', emptyHint: 'No parent accounts yet. Leave this blank to create a top-level account.', options: [{ value: '', label: 'Top-level account' }, ...accounts.map((account) => ({ value: account.code, label: `${account.description} — ${account.code}` }))] }, { key: 'accountType', label: 'Statement type', section: 'Statement classification', type: 'select', defaultValue: 'UNCLASSIFIED', options: [{ value: 'UNCLASSIFIED', label: 'Unclassified' }, { value: 'ASSET', label: 'Asset' }, { value: 'LIABILITY', label: 'Liability' }, { value: 'EQUITY', label: 'Equity' }, { value: 'INCOME', label: 'Income' }, { value: 'EXPENSE', label: 'Expense' }] }, { key: 'openingBalance', label: 'Opening balance', section: 'Opening balance', type: 'number' }, { key: 'openingBalanceSide', label: 'Balance side', type: 'select', defaultValue: 'DEBIT', options: [{ value: 'DEBIT', label: 'Debit' }, { value: 'CREDIT', label: 'Credit' }] }]} onSave={async (value, baseline) => onSave({ code: value.code, description: value.description, parentCode: value.parentCode || null, openingBalance: Number(value.openingBalance), openingBalanceSide: value.openingBalanceSide as Account['openingBalanceSide'], accountType: value.accountType as Account['accountType'], ...(baseline ? { __baseline: baseline as Partial<Account> } : {}) })} onDelete={(index) => onDelete(shownRows[index].account.code)} />
+}
+
+export function ItemsTable({ rows, stockTypes, locations, onSave, onDelete }: { rows: Item[]; stockTypes: StockType[]; locations: string[]; onSave: (value: Item & { quantityToAdd?: number; location?: string; __baseline?: Partial<Item> }) => Promise<void>; onDelete: (code: string) => Promise<void> }) {
+  return <MasterTable idKind="item" title="Items" createLabel="Add item" columns={['Code', 'Description', 'Quantity', 'Stock type', 'Purchase rate', 'Sale rate', '']} rows={rows.map((row) => [row.code, row.description, String(row.stockQuantity ?? 0), stockTypes.find((type) => type.code === row.stockType)?.description ?? row.stockType, money(row.purchaseRate), money(row.saleRate)])} records={rows.map((row) => ({ ...row, stockQuantity: String(row.stockQuantity ?? 0), saleRate: String(row.saleRate), purchaseRate: String(row.purchaseRate) }))} baselineRecords={rows} fields={[{ key: 'code', label: 'Item code', section: 'Item details', auto: true }, { key: 'description', label: 'Description' }, { key: 'stockType', label: 'Stock type', type: 'select', emptyHint: 'Create a stock type on the Stock Types page, then return here.', options: stockTypes.map((type) => ({ value: type.code, label: `${type.code} — ${type.description}` })) }, { key: 'purchaseRate', label: 'Purchase rate', section: 'Pricing', type: 'number' }, { key: 'saleRate', label: 'Sale rate', type: 'number' }, { key: 'quantityToAdd', label: 'Quantity to add', section: 'Inventory', type: 'number', placeholder: '0', helpText: 'Enter starting stock or another quantity to add. Leave at 0 to keep stock unchanged.' }, { key: 'location', label: 'Location', type: 'select', options: locations.map((place) => ({ value: place, label: place })), emptyHint: 'Add a location on the Locations page, then return here.' }]} onSave={async (value, baseline) => onSave({ code: value.code, description: value.description, unit: value.unit || 'Unit', stockType: value.stockType, purchaseRate: Number(value.purchaseRate), saleRate: Number(value.saleRate), stockQuantity: Number(value.stockQuantity) || 0, quantityToAdd: Number(value.quantityToAdd) || 0, location: value.location || '', ...(baseline ? { __baseline: baseline as Partial<Item> } : {}) })} onDelete={(index) => onDelete(rows[index].code)} />
+}
+
+export function BanksTable({ rows, accounts, onSave, onDelete }: { rows: Bank[]; accounts: Account[]; onSave: (value: Bank & { __baseline?: Partial<Bank> }) => Promise<void>; onDelete: (code: string) => Promise<void> }) {
+  return <MasterTable idKind="bank" title="Banks" createLabel="Add bank" columns={['Code', 'Bank name', 'Account number', 'Opening balance', 'Ledger account', '']} rows={rows.map((row) => [row.code, row.name, row.accountNumber || '—', money(row.openingBalance), accounts.find((account) => account.code === row.ledgerAccountCode)?.description ?? 'Not linked'])} records={rows.map((row) => ({ ...row, openingBalance: String(row.openingBalance) }))} baselineRecords={rows} fields={[{ key: 'code', label: 'Bank code', section: 'Bank details', auto: true }, { key: 'name', label: 'Bank name' }, { key: 'accountNumber', label: 'Account number' }, { key: 'ledgerAccountCode', label: 'Chart of Accounts ledger account', section: 'Accounting link', type: 'select', emptyHint: 'Create the bank ledger account in Chart of Accounts, then return here.', options: [{ value: '', label: 'Not linked' }, ...accounts.map((account) => ({ value: account.code, label: `${account.description} — ${account.code}` }))] }, { key: 'openingBalance', label: 'Opening balance', section: 'Opening balance', type: 'number' }, { key: 'address', label: 'Address', section: 'Contact details' }, { key: 'phone', label: 'Phone' }]} onSave={async (value, baseline) => onSave({ code: value.code, name: value.name, accountNumber: value.accountNumber, openingBalance: Number(value.openingBalance), address: value.address, phone: value.phone, ledgerAccountCode: value.ledgerAccountCode || '', ...(baseline ? { __baseline: baseline as Partial<Bank> } : {}) })} onDelete={(index) => onDelete(rows[index].code)} />
+}
+
+type EditorField = { key: string; label: string; section?: string; type?: 'text' | 'number' | 'select' | 'location'; auto?: boolean; emptyHint?: string; helpText?: string; placeholder?: string; defaultValue?: string; locationOptions?: string[]; options?: Array<{ value: string; label: string }> }
+
+type TreeRowControl = { code: string; depth: number; hasChildren: boolean; collapsed: boolean; onToggle: () => void }
+
+export function MasterTable({ idKind, title, createLabel, columns, rows, records, baselineRecords, fields, onSave, onDelete, treeRows, rowAction }: { idKind: 'account' | 'item' | 'bank'; title: string; createLabel: string; columns: string[]; rows: string[][]; records: Array<Record<string, string>>; baselineRecords: Array<Record<string, unknown>>; fields: EditorField[]; onSave: (value: Record<string, string>, baseline?: Record<string, unknown>) => Promise<void>; onDelete: (index: number) => Promise<void>; treeRows?: TreeRowControl[]; rowAction?: { label: string; onSelect: (index: number) => void } }) {
+  const [open, setOpen] = useState(false); const [editIndex, setEditIndex] = useState<number | null>(null); const [values, setValues] = useState<Record<string, string>>({}); const [baseline, setBaseline] = useState<Record<string, unknown> | undefined>(); const [saving, setSaving] = useState(false); const [deleteIndex, setDeleteIndex] = useState<number | null>(null)
+  const startCreate = async () => { try { setEditIndex(null); setBaseline(undefined); const initial = Object.fromEntries(fields.map((field) => [field.key, field.defaultValue ?? ''])); const idField = fields.find((field) => field.auto); if (idField) initial[idField.key] = await window.office.ids.next(idKind); setValues(initial); setOpen(true) } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not prepare a new record') } }
+  const startEdit = (index: number) => { setEditIndex(index); setBaseline(baselineRecords[index]); setValues({ ...Object.fromEntries(fields.map((field) => [field.key, field.defaultValue ?? ''])), ...records[index] }); setOpen(true) }
+  const recordName = title.toLowerCase().replace(/s$/, '')
+  const submit = async () => { setSaving(true); try { await onSave(values, baseline); toast.success(`${recordName[0].toUpperCase()}${recordName.slice(1)} ${editIndex === null ? 'added' : 'updated'}`); setOpen(false) } catch (error) { toast.error(error instanceof Error ? error.message : `Could not save ${recordName}`) } finally { setSaving(false) } }
+  return <>
+    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div><CardTitle className="text-base">{title}</CardTitle><CardDescription>{rows.length} record{rows.length === 1 ? '' : 's'}</CardDescription></div><Button onClick={() => void startCreate()}><Plus data-icon="inline-start" />{createLabel}</Button></CardHeader><CardContent><div className="overflow-x-auto"><Table><TableHeader><TableRow>{columns.map((column, index) => <TableHead key={`${column}-${index}`}>{column}</TableHead>)}</TableRow></TableHeader><TableBody>{rows.map((row, index) => <TableRow key={treeRows?.[index]?.code ?? row[0]}>{row.map((cell, cellIndex) => <TableCell key={cellIndex} className={cellIndex > 2 && cellIndex < row.length - 1 ? 'tabular-nums' : ''}>{cellIndex === 1 && treeRows ? <div className="flex items-center gap-1" style={{ paddingLeft: `${treeRows[index].depth * 22}px` }}>{treeRows[index].depth > 0 && <CornerDownRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}{treeRows[index].hasChildren && <Button variant="ghost" size="icon-sm" className="size-7 shrink-0" aria-label={`${treeRows[index].collapsed ? 'Expand' : 'Collapse'} ${cell}`} aria-expanded={!treeRows[index].collapsed} onClick={treeRows[index].onToggle}>{treeRows[index].collapsed ? <ChevronRight /> : <ChevronDown />}</Button>}{!treeRows[index].hasChildren && treeRows[index].depth === 0 && <span className="w-7 shrink-0" />}{cell}</div> : cell}</TableCell>)}<TableCell className="w-28 text-right"><div className="inline-flex items-center justify-end gap-1">{rowAction && <Button variant="outline" size="sm" onClick={() => rowAction.onSelect(index)}>{rowAction.label}</Button>}<Button variant="ghost" size="sm" onClick={() => startEdit(index)}>Edit</Button><Button variant="ghost" size="icon-sm" aria-label={`Delete ${row[0]}`} onClick={() => setDeleteIndex(index)}><Trash2 /></Button></div></TableCell></TableRow>)}{rows.length === 0 && <TableRow><TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">No records yet. Use “{createLabel}” to add the first.</TableCell></TableRow>}</TableBody></Table></div></CardContent></Card>
+    <Sheet open={open} onOpenChange={setOpen}><SheetContent side="right" className="flex data-[side=right]:w-[min(92vw,36rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"><SheetHeader className="border-b px-6 py-5"><SheetTitle>{editIndex === null ? createLabel : `Edit ${title.toLowerCase().replace(/s$/, '')}`}</SheetTitle><SheetDescription>Complete the fields below. Changes save to this computer’s office database.</SheetDescription></SheetHeader><FieldGroup className="grid min-h-0 flex-1 content-start grid-cols-1 gap-x-5 gap-y-5 overflow-y-auto p-6 sm:grid-cols-2">{fields.map((field) => <Fragment key={field.key}>{field.section && <FormSectionHeading title={field.section} />}<UiField><FieldLabel htmlFor={`editor-${field.key}`}>{field.label}</FieldLabel>{field.type === 'select' ? <FormSelect id={`editor-${field.key}`} value={values[field.key] ?? ''} onChange={(value) => setValues((current) => ({ ...current, [field.key]: value }))} options={field.options ?? []} emptyHint={field.emptyHint} placeholder={field.options?.find((option) => !option.value)?.label ?? `Select ${field.label.toLowerCase()}`} /> : field.type === 'location' ? <div className="grid gap-1.5"><Input id={`editor-${field.key}`} list={`editor-${field.key}-options`} value={values[field.key] ?? ''} placeholder={field.placeholder} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} /><datalist id={`editor-${field.key}-options`}>{(field.locationOptions ?? []).map((place) => <option key={place} value={place} />)}</datalist>{field.helpText && <FieldDescription>{field.helpText}</FieldDescription>}</div> : <div className="grid gap-1.5"><Input id={`editor-${field.key}`} type={field.type ?? 'text'} disabled={field.auto} step={field.type === 'number' ? 'any' : undefined} min={field.key === 'quantityToAdd' ? '0' : undefined} placeholder={field.placeholder} value={values[field.key] ?? ''} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} />{field.helpText && <FieldDescription>{field.helpText}</FieldDescription>}</div>}</UiField></Fragment>)}</FieldGroup><SheetFooter className="mt-0 border-t px-6 py-4"><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => void submit()} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></SheetFooter></SheetContent></Sheet>
+    <ConfirmActionDialog open={deleteIndex !== null} onOpenChange={(value) => { if (!value) setDeleteIndex(null) }} title={`Delete ${rows[deleteIndex ?? -1]?.[0] ?? 'record'}?`} description="This action cannot be undone." onConfirm={() => { const target = deleteIndex; setDeleteIndex(null); if (target !== null) void onDelete(target).catch((error) => toast.error(error instanceof Error ? error.message : 'Could not delete record')) }} />
+  </>
+}

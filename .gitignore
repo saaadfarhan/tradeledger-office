@@ -1,0 +1,41 @@
+# Dependencies and generated application output
+node_modules/
+dist/
+build/
+build-electron/
+java-app/build/
+coverage/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.codex/
+.agents/
+owner-secrets/
+tradeledger-*.json
+*-private.pem
+*.key
+
+# Local databases and temporary SQLite sidecars
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-shm
+*.sqlite-wal
+/--
+
+# Java and IDE output
+*.class
+*.jar
+.idea/
+*.iml
+.vscode/
+
+# Platform and package artifacts
+.DS_Store
+Thumbs.db
+*.log
+*.zip
+*.exe
+*.blockmap
