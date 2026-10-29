@@ -64,6 +64,11 @@ contextBridge.exposeInMainWorld('office', Object.freeze({
     save: (value) => invoke('users:save', value),
     remove: (username) => invoke('users:remove', username),
   },
+  presets: {
+    list: () => invoke('presets:list'),
+    save: (value) => invoke('presets:save', value),
+    remove: (name) => invoke('presets:remove', name),
+  },
   devices: {
     list: () => invoke('devices:list'),
     create: (value) => invoke('devices:create', value),
@@ -72,10 +77,13 @@ contextBridge.exposeInMainWorld('office', Object.freeze({
   audit: { list: () => invoke('audit:list') },
   database: {
     backup: () => invoke('database:backup'),
+    backupDirectory: () => invoke('database:backup-directory'),
+    chooseBackupDirectory: () => invoke('database:choose-backup-directory'),
     exportData: () => invoke('database:export'),
     verify: () => invoke('database:verify'),
     openBackups: () => invoke('database:open-backups'),
   },
+  reports: { exportPdf: (fileName, landscape) => invoke('reports:export-pdf', { fileName, landscape }) },
   ids: { next: (entity) => invoke('ids:next', entity) },
   dashboard: () => invoke('dashboard:get'),
   company: {

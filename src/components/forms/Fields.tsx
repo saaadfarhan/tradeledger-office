@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { Field as UiField, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
@@ -47,4 +48,15 @@ export function FormSelect({ id, value, onChange, options, placeholder, disabled
   )
 }
 
-export function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) { return <UiField><FieldLabel htmlFor={id}>{label}</FieldLabel>{children}</UiField> }
+function containsRequiredControl(node: React.ReactNode): boolean {
+  return React.Children.toArray(node).some((child) => {
+    if (!React.isValidElement(child)) return false
+    const props = child.props as { required?: boolean; children?: React.ReactNode }
+    return props.required === true || containsRequiredControl(props.children)
+  })
+}
+
+export function Field({ label, id, children, required = false }: { label: string; id: string; children: React.ReactNode; required?: boolean }) {
+  const isRequired = required || containsRequiredControl(children)
+  return <UiField><FieldLabel htmlFor={id}>{label}{isRequired && <span aria-hidden="true" className="ml-0.5 text-destructive">*</span>}</FieldLabel>{children}</UiField>
+}

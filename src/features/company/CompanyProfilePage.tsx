@@ -34,7 +34,7 @@ export function CompanyProfilePage({ profile, onboarding, isAdministrator, admin
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{onboarding ? 'Add the details shown on your reports and set a password for administrator-only pages.' : 'Update the company details shown on the dashboard and printed documents.'}</p>
     </header>
 
-    <form onSubmit={(event) => void submit(event)} className={cn('grid', onboarding ? 'gap-3' : 'gap-4 sm:gap-5')}>
+    <form onSubmit={(event) => void submit(event)} className={cn('grid', onboarding ? 'gap-3' : 'gap-4 sm:gap-4')}>
       <div className={cn('grid min-w-0 items-start gap-3 sm:gap-4', isAdministrator && (onboarding ? 'lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]' : 'lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'))}>
         <Card size={onboarding ? 'sm' : 'default'} className="order-1 min-w-0">
           <CardHeader className={cn(onboarding ? 'px-4 pt-4 pb-1' : 'p-4 pb-2 sm:p-5 sm:pb-2')}>
@@ -42,7 +42,7 @@ export function CompanyProfilePage({ profile, onboarding, isAdministrator, admin
             <CardDescription>{onboarding ? 'Used on the dashboard and printed documents.' : 'These details appear on the dashboard and printed documents.'}</CardDescription>
           </CardHeader>
           <CardContent className={cn(onboarding ? 'px-4 pb-4 pt-2' : 'p-4 pt-2 sm:p-5 sm:pt-2')}>
-            <FieldGroup className={cn('grid min-w-0 grid-cols-1 sm:grid-cols-2', onboarding ? 'gap-3' : 'gap-4 sm:gap-5')}>
+            <FieldGroup className={cn('grid min-w-0 grid-cols-1 sm:grid-cols-2', onboarding ? 'gap-3' : 'gap-4 sm:gap-4')}>
               <div className="min-w-0 sm:col-span-2"><Field label="Company name" id="company-name"><Input id="company-name" required maxLength={120} value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} /></Field></div>
               <Field label="Phone" id="company-phone"><Input id="company-phone" type="tel" value={values.phone} onChange={(event) => setValues((current) => ({ ...current, phone: event.target.value }))} /></Field>
               <Field label="Fiscal year" id="company-year"><Input id="company-year" placeholder="For example: 2026–2027" value={values.fiscalYear} onChange={(event) => setValues((current) => ({ ...current, fiscalYear: event.target.value }))} /></Field>
@@ -60,7 +60,7 @@ export function CompanyProfilePage({ profile, onboarding, isAdministrator, admin
           <CardContent className={cn(onboarding ? 'px-4 pb-4 pt-2' : 'p-4 pt-2 sm:p-5 sm:pt-2')}>
             <FieldGroup className={cn('grid min-w-0', onboarding ? 'gap-3' : 'gap-4')}>
               <p className="text-xs text-muted-foreground">Use at least 12 characters. Keep it different from your sign-in password.</p>
-              {adminToolsPasswordConfigured && <Field label="Current administrator password" id="company-admin-current"><Input id="company-admin-current" type="password" autoComplete="current-password" value={currentAdminToolsPassword} onChange={(event) => setCurrentAdminToolsPassword(event.target.value)} /></Field>}
+              {adminToolsPasswordConfigured && <Field label="Current administrator password" id="company-admin-current" required={Boolean(newAdminToolsPassword)}><Input id="company-admin-current" type="password" autoComplete="current-password" required={Boolean(newAdminToolsPassword)} value={currentAdminToolsPassword} onChange={(event) => setCurrentAdminToolsPassword(event.target.value)} /></Field>}
               <Field label={adminToolsPasswordConfigured ? 'New administrator password (optional)' : 'Set administrator password'} id="company-admin-new"><Input id="company-admin-new" type="password" autoComplete="new-password" minLength={12} required={!adminToolsPasswordConfigured} value={newAdminToolsPassword} onChange={(event) => setNewAdminToolsPassword(event.target.value)} /></Field>
               {(!adminToolsPasswordConfigured || newAdminToolsPassword) && <Field label="Confirm administrator password" id="company-admin-confirm"><Input id="company-admin-confirm" type="password" autoComplete="new-password" minLength={12} required value={confirmAdminToolsPassword} onChange={(event) => setConfirmAdminToolsPassword(event.target.value)} /></Field>}
             </FieldGroup>

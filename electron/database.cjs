@@ -14,6 +14,7 @@ function openOfficeDatabase(filePath) {
 }
 
 function initializeSchema(db) {
+  const hadPermissionPresetTable = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_permission_presets'").get())
   db.exec(`
     CREATE TABLE IF NOT EXISTS company_profile (
       id INTEGER PRIMARY KEY CHECK (id = 1), name TEXT NOT NULL, address TEXT NOT NULL,
@@ -21,6 +22,7 @@ function initializeSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS users (
       username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, permissions TEXT NOT NULL,
+      is_admin INTEGER NOT NULL DEFAULT 0,
       mac_address TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS authorized_devices (
@@ -31,6 +33,9 @@ function initializeSchema(db) {
       id INTEGER PRIMARY KEY CHECK (id = 1), admin_tools_password_hash TEXT NOT NULL DEFAULT ''
     );
     INSERT OR IGNORE INTO app_security(id, admin_tools_password_hash) VALUES (1, '');
+    CREATE TABLE IF NOT EXISTS user_permission_presets (
+      name TEXT PRIMARY KEY, description TEXT NOT NULL, permissions TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS accounts (
       code TEXT PRIMARY KEY, description TEXT NOT NULL, parent_code TEXT,
       opening_balance NUMERIC NOT NULL DEFAULT 0, opening_balance_side TEXT NOT NULL DEFAULT 'DEBIT',
@@ -39,7 +44,8 @@ function initializeSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS items (
       code TEXT PRIMARY KEY, description TEXT NOT NULL, unit TEXT NOT NULL,
-      sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL, stock_type TEXT NOT NULL
+      sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL, stock_type TEXT NOT NULL,
+      brand TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS stock_types (
       code TEXT PRIMARY KEY, description TEXT NOT NULL
@@ -113,6 +119,21 @@ function initializeSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS id_sequences (entity TEXT PRIMARY KEY, last_number INTEGER NOT NULL);
   `)
+  const userTableColumns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  if (!userTableColumns.includes('is_admin')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0')
+    const legacyAdmin = db.prepare("SELECT username FROM users WHERE instr(permissions, 'User Rights') > 0 ORDER BY rowid LIMIT 1").get()
+    if (legacyAdmin) db.prepare('UPDATE users SET is_admin=1 WHERE username=?').run(legacyAdmin.username)
+  }
+  if (!hadPermissionPresetTable) {
+    const insertPreset = db.prepare('INSERT INTO user_permission_presets(name, description, permissions) VALUES (?, ?, ?)')
+    for (const preset of [
+      ['Sales operator', 'Enter sale challans and review related records.', ['Chart of Accounts', 'Items', 'Sale Challans', 'Search Payment', 'Reports']],
+      ['Purchase operator', 'Enter purchase challans and review related records.', ['Chart of Accounts', 'Items', 'Purchase Challans', 'Search Payment', 'Reports']],
+      ['Cashier / payments', 'Record payments, receipts, and cheque details.', ['Chart of Accounts', 'Banks', 'Cheque Detail', 'Payment / Receipt', 'Search Payment', 'Reports']],
+      ['Inventory operator', 'Maintain stock setup, opening stock, and transfers.', ['Items', 'Stock Types', 'Locations', 'Item Opening Balances', 'Transfer', 'Reports']],
+    ]) insertPreset.run(preset[0], preset[1], preset[2].join('\u001f'))
+  }
 
   const columns = db.prepare('PRAGMA table_info(cheques)').all().map((column) => column.name)
   if (!columns.includes('manual_id')) db.exec('ALTER TABLE cheques ADD COLUMN manual_id TEXT')
@@ -128,6 +149,9 @@ function initializeSchema(db) {
   const accountColumns = db.prepare('PRAGMA table_info(accounts)').all().map((column) => column.name)
   if (!accountColumns.includes('opening_balance_side')) db.exec("ALTER TABLE accounts ADD COLUMN opening_balance_side TEXT NOT NULL DEFAULT 'DEBIT'")
   if (!accountColumns.includes('account_type')) db.exec("ALTER TABLE accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED'")
+  const itemColumns = db.prepare('PRAGMA table_info(items)').all().map((column) => column.name)
+  if (!itemColumns.includes('brand')) db.exec("ALTER TABLE items ADD COLUMN brand TEXT NOT NULL DEFAULT ''")
+  if (!itemColumns.includes('category')) db.exec("ALTER TABLE items ADD COLUMN category TEXT NOT NULL DEFAULT ''")
   const challanLineColumns = db.prepare('PRAGMA table_info(challan_lines)').all().map((column) => column.name)
   if (!challanLineColumns.includes('item_label')) {
     db.pragma('foreign_keys = OFF')
@@ -190,25 +214,57 @@ function createOfficeStore(db) {
   }
 
   function listUsers() {
-    return db.prepare('SELECT username, permissions, mac_address AS macAddress FROM users ORDER BY username').all().map((row) => ({
+    return db.prepare('SELECT username, permissions, mac_address AS macAddress, is_admin AS isAdministrator FROM users ORDER BY username').all().map((row) => ({
       username: row.username,
       macAddress: row.macAddress,
       permissions: normalizePermissions(row.permissions ? row.permissions.split('\u001f').filter(Boolean) : []),
+      isAdministrator: Boolean(row.isAdministrator),
     }))
   }
 
   function getUserSession(username) {
-    const user = db.prepare('SELECT username, permissions FROM users WHERE username=?').get(String(username || '').trim())
+    const user = db.prepare('SELECT username, permissions, is_admin AS isAdministrator FROM users WHERE username=?').get(String(username || '').trim())
     if (!user) return null
     return {
       username: user.username,
       permissions: normalizePermissions(user.permissions ? user.permissions.split('\u001f').filter(Boolean) : []),
+      isAdministrator: Boolean(user.isAdministrator),
     }
   }
 
   function requireAdministrator() {
     const actor = listUsers().find((user) => user.username === currentUser)
-    if (!actor?.permissions.includes('User Rights')) throw new Error('Only an administrator can manage user accounts')
+    if (!actor?.isAdministrator) throw new Error('Only an administrator can manage user accounts')
+  }
+
+  function listPermissionPresets() {
+    return db.prepare('SELECT name, description, permissions FROM user_permission_presets ORDER BY name').all().map((row) => ({ name: row.name, description: row.description, permissions: row.permissions ? row.permissions.split('\u001f').filter(Boolean) : [] }))
+  }
+
+  function savePermissionPreset(input) {
+    requireAdministrator()
+    const name = required(input.name, 'Preset name').trim()
+    const originalName = String(input.originalName || '').trim()
+    const description = String(input.description || '').trim()
+    const permissions = normalizePermissions((input.permissions || []).map(String)).filter((permission) => !['User Rights', 'Company Profile', 'Database Tools'].includes(permission))
+    if (name.length > 60) throw new Error('Preset name must be 60 characters or fewer')
+    if (description.length > 180) throw new Error('Preset description must be 180 characters or fewer')
+    if (!permissions.some((permission) => !['Overview', 'Manual'].includes(permission))) throw new Error('Choose at least one page for this preset')
+    if (originalName && originalName !== name && db.prepare('SELECT 1 FROM user_permission_presets WHERE name=?').get(name)) throw new Error('A preset with that name already exists')
+    db.transaction(() => {
+      if (originalName && originalName !== name) db.prepare('DELETE FROM user_permission_presets WHERE name=?').run(originalName)
+      db.prepare('INSERT INTO user_permission_presets(name, description, permissions) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET description=excluded.description, permissions=excluded.permissions').run(name, description, permissions.join('\u001f'))
+    })()
+    recordAudit('PERMISSION_PRESET_SAVE', originalName && originalName !== name ? `${originalName} → ${name}` : name)
+    return listPermissionPresets()
+  }
+
+  function deletePermissionPreset(name) {
+    requireAdministrator()
+    const result = db.prepare('DELETE FROM user_permission_presets WHERE name=?').run(String(name || '').trim())
+    if (!result.changes) throw new Error('Permission preset does not exist')
+    recordAudit('PERMISSION_PRESET_DELETE', String(name).trim())
+    return listPermissionPresets()
   }
 
   function saveUser(input) {
@@ -222,10 +278,6 @@ function createOfficeStore(db) {
     if (password && password.length < 8) throw new Error('Passwords must be at least 8 characters')
     const permissions = normalizePermissions((input.permissions || []).map(String))
     if (permissions.length <= 2) throw new Error('Select at least one page permission')
-    if (existing && listUsers().find((user) => user.username === username)?.permissions.includes('User Rights') && !permissions.includes('User Rights')) {
-      const anotherManager = db.prepare("SELECT 1 FROM users WHERE username<>? AND instr(permissions, 'User Rights') > 0 LIMIT 1").get(username)
-      if (!anotherManager) throw new Error('At least one user must retain User Rights access')
-    }
     const hash = password ? hashPassword(password) : existing?.password_hash
     db.prepare('INSERT INTO users(username, password_hash, permissions, mac_address) VALUES (?, ?, ?, ?) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, permissions=excluded.permissions, mac_address=excluded.mac_address')
       .run(username, hash, permissions.join('\u001f'), macAddress)
@@ -239,9 +291,9 @@ function createOfficeStore(db) {
     const userCount = db.prepare('SELECT COUNT(*) AS count FROM users').get().count
     if (userCount <= 1) throw new Error('The last user account cannot be deleted')
     const target = listUsers().find((user) => user.username === username)
-    if (target?.permissions.includes('User Rights')) {
-      const anotherManager = db.prepare("SELECT 1 FROM users WHERE username<>? AND instr(permissions, 'User Rights') > 0 LIMIT 1").get(username)
-      if (!anotherManager) throw new Error('At least one user must retain User Rights access')
+    if (target?.isAdministrator) {
+      const anotherAdministrator = db.prepare('SELECT 1 FROM users WHERE username<>? AND is_admin=1 LIMIT 1').get(username)
+      if (!anotherAdministrator) throw new Error('At least one administrator account must remain')
     }
     const result = db.prepare('DELETE FROM users WHERE username=?').run(username)
     if (!result.changes) throw new Error('User does not exist')
@@ -279,7 +331,7 @@ function createOfficeStore(db) {
   }
 
   function authenticate(username, password, macAddress = '') {
-    const user = db.prepare('SELECT username, password_hash, permissions, mac_address AS macAddress FROM users WHERE username=?').get(String(username).trim())
+    const user = db.prepare('SELECT username, password_hash, permissions, mac_address AS macAddress, is_admin AS isAdministrator FROM users WHERE username=?').get(String(username).trim())
     if (!user || !verifyPassword(String(password), user.password_hash)) throw new Error('User name or password is incorrect')
     if (user.macAddress && normalizeMacAddress(macAddress) !== user.macAddress) {
       throw new Error('This account can only sign in from its registered MAC address on the office LAN')
@@ -289,7 +341,7 @@ function createOfficeStore(db) {
     }
     currentUser = user.username
     recordAudit('LOGIN', user.username)
-    return { username: user.username, permissions: normalizePermissions(user.permissions ? user.permissions.split('\u001f').filter(Boolean) : []) }
+    return { username: user.username, permissions: normalizePermissions(user.permissions ? user.permissions.split('\u001f').filter(Boolean) : []), isAdministrator: Boolean(user.isAdministrator) }
   }
 
   function createFirstUser(input) {
@@ -298,10 +350,10 @@ function createOfficeStore(db) {
     const password = String(input.password || '')
     if (password.length < 8) throw new Error('Password must be at least 8 characters')
     const permissions = ['Overview', 'Company Profile', 'Chart of Accounts', 'Items', 'Banks', 'Stock Types', 'Locations', 'Item Opening Balances', 'Transfer', 'Cheque Detail', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Search Payment', 'Payment / Receipt', 'Reports', 'User Rights', 'Audit Log', 'Database Tools', 'Manual']
-    db.prepare('INSERT INTO users(username, password_hash, permissions) VALUES (?, ?, ?)').run(username, hashPassword(password), permissions.join('\u001f'))
+    db.prepare('INSERT INTO users(username, password_hash, permissions, is_admin) VALUES (?, ?, ?, 1)').run(username, hashPassword(password), permissions.join('\u001f'))
     currentUser = username
     recordAudit('INITIAL_ADMIN_CREATED', username)
-    return { username, permissions: normalizePermissions(permissions) }
+    return { username, permissions: normalizePermissions(permissions), isAdministrator: true }
   }
 
   function setCurrentUser(username, recordLogout = true) {
@@ -469,6 +521,7 @@ function createOfficeStore(db) {
   function listItems() {
     return db.prepare(`SELECT i.code, i.description, i.unit, i.sale_rate AS saleRate,
       i.purchase_rate AS purchaseRate, i.stock_type AS stockType,
+      i.brand, i.category,
       COALESCE((SELECT SUM(m.quantity) FROM stock_movements m WHERE m.item_code=i.code), 0) AS stockQuantity
       FROM items i ORDER BY i.code`).all()
   }
@@ -479,22 +532,23 @@ function createOfficeStore(db) {
         code: required(input.code, 'Item code'), description: required(input.description, 'Description'),
         unit: String(input.unit || 'Unit').trim(), saleRate: nonNegative(input.saleRate, 'Sale rate'),
         purchaseRate: nonNegative(input.purchaseRate, 'Purchase rate'), stockType: required(input.stockType, 'Stock type'),
+        brand: String(input.brand || '').trim(), category: String(input.category || '').trim(),
       }
       if (!item.unit) item.unit = 'Unit'
       if (!db.prepare('SELECT 1 FROM stock_types WHERE code = ?').get(item.stockType)) throw new Error('Selected stock type does not exist')
       const quantityToAdd = input.quantityToAdd == null || input.quantityToAdd === '' ? 0 : nonNegative(input.quantityToAdd, 'Quantity to add')
       const location = quantityToAdd > 0 ? knownLocation(input.location) : ''
-      const exists = db.prepare('SELECT code, description, unit, sale_rate AS saleRate, purchase_rate AS purchaseRate, stock_type AS stockType FROM items WHERE code = ?').get(item.code)
+      const exists = db.prepare('SELECT code, description, unit, sale_rate AS saleRate, purchase_rate AS purchaseRate, stock_type AS stockType, brand, category FROM items WHERE code = ?').get(item.code)
       const merged = input.__baseline
-        ? mergeConcurrentFields(exists, input.__baseline, item, [['description'], ['unit'], ['saleRate', 'number'], ['purchaseRate', 'number'], ['stockType']], 'item')
+        ? mergeConcurrentFields(exists, input.__baseline, item, [['description'], ['unit'], ['saleRate', 'number'], ['purchaseRate', 'number'], ['stockType'], ['brand'], ['category']], 'item')
         : item
       if (exists) {
-        db.prepare('UPDATE items SET description=?, unit=?, sale_rate=?, purchase_rate=?, stock_type=? WHERE code=?')
-          .run(merged.description, merged.unit, merged.saleRate, merged.purchaseRate, merged.stockType, item.code)
+        db.prepare('UPDATE items SET description=?, unit=?, sale_rate=?, purchase_rate=?, stock_type=?, brand=?, category=? WHERE code=?')
+          .run(merged.description, merged.unit, merged.saleRate, merged.purchaseRate, merged.stockType, merged.brand, merged.category, item.code)
         recordAudit('ITEM_UPDATE', item.code)
       } else {
-        db.prepare('INSERT INTO items(code, description, unit, sale_rate, purchase_rate, stock_type) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(item.code, item.description, item.unit, item.saleRate, item.purchaseRate, item.stockType)
+        db.prepare('INSERT INTO items(code, description, unit, sale_rate, purchase_rate, stock_type, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(item.code, item.description, item.unit, item.saleRate, item.purchaseRate, item.stockType, item.brand, item.category)
         recordAudit('ITEM_SAVE', item.code)
       }
       if (quantityToAdd > 0) {
@@ -566,13 +620,21 @@ function createOfficeStore(db) {
       purchasesToday: canSeePurchases ? db.prepare("SELECT COALESCE(SUM(total), 0) AS total FROM challans WHERE type='PURCHASE' AND date=?").get(today).total : null,
       salesToday: canSeeSales ? db.prepare("SELECT COALESCE(SUM(total), 0) AS total FROM challans WHERE type='SALE' AND date=?").get(today).total : null,
     }
+    const brandRows = (canSeePurchases || canSeeSales) ? db.prepare(`SELECT COALESCE(NULLIF(TRIM(i.brand), ''), 'Unbranded') AS brand,
+      SUM(CASE WHEN c.type='PURCHASE' THEN cl.amount ELSE 0 END) AS purchases,
+      SUM(CASE WHEN c.type='SALE' THEN cl.amount ELSE 0 END) AS sales
+      FROM challan_lines cl JOIN challans c ON c.number=cl.challan_number
+      JOIN items i ON i.code=cl.item_code
+      WHERE c.date=? AND c.type IN (${[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean).map(() => '?').join(',')})
+      GROUP BY COALESCE(NULLIF(TRIM(i.brand), ''), 'Unbranded') ORDER BY brand COLLATE NOCASE`).all(today, ...[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean)) : []
+    const brandTotals = brandRows.map((row) => ({ brand: row.brand, purchases: canSeePurchases ? row.purchases : null, sales: canSeeSales ? row.sales : null }))
     const recent = canSeePurchases || canSeeSales
       ? db.prepare(`SELECT number, type, date, party, total FROM challans WHERE type IN (${[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean).map(() => '?').join(',')}) ORDER BY date DESC, number DESC LIMIT 8`).all(...[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean))
       : []
     const stock = canSeeStock ? db.prepare(`SELECT COALESCE(SUM(balance), 0) AS quantity FROM (
       SELECT SUM(quantity) AS balance FROM stock_movements GROUP BY item_code, location HAVING SUM(quantity) > 0
     )`).get().quantity : null
-    return { today, counts, recent, canSeeRecent: canSeePurchases || canSeeSales, stockQuantity: stock }
+    return { today, counts, brandTotals, recent, canSeeRecent: canSeePurchases || canSeeSales, stockQuantity: stock }
   }
 
   function listChallans(type) {
@@ -948,6 +1010,7 @@ function createOfficeStore(db) {
     listCheques, saveCheque, deleteCheque: (number) => deleteChequeTransaction(number),
     getChallanType: (number) => db.prepare('SELECT type FROM challans WHERE number=?').get(number)?.type ?? null,
     listUsers, getUserSession, saveUser, deleteUser, authenticate, createFirstUser, setCurrentUser, setAuditActor, auditEvents,
+    listPermissionPresets, savePermissionPreset, deletePermissionPreset,
     listDevices, registerDevice, getActiveDevice, revokeDevice,
     hasUsers: () => Boolean(db.prepare('SELECT 1 FROM users LIMIT 1').get()),
     getStockTypes: listStockTypes,
@@ -995,8 +1058,6 @@ function normalizePermissions(values) {
   if (permissions.has('User Rights')) {
     permissions.add('Company Profile')
     permissions.add('Database Tools')
-  } else {
-    permissions.delete('Company Profile')
   }
   if (permissions.has('User Rights')) {
     permissions.add('Stock Types')

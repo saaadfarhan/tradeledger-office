@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Field } from '@/components/forms/Fields'
 import { Separator } from '@/components/ui/separator'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -142,7 +143,7 @@ export function App() {
         setAdminToolsUnlockedUntil(status.adminToolsUnlockedUntil)
         setSession(status.session)
         if (status.session) {
-          const isAdministrator = status.session.permissions.includes('User Rights')
+          const isAdministrator = status.session.isAdministrator
           setPage(isAdministrator && (!status.hasCompanyProfile || !status.hasAdminToolsPassword) ? 'company' : 'home')
         }
       } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not check office connection') }
@@ -244,22 +245,22 @@ export function App() {
     setHistoryIndex((current) => current + 1)
   }
   const navigate = (nextPage: Page) => {
-    const isAdministrator = session?.permissions.includes('User Rights') === true
+    const isAdministrator = session?.isAdministrator === true
     if (nextPage === 'company' && !isAdministrator) { toast.error('Only an administrator can open Company Profile'); return }
     if (companySetupNeeded && nextPage !== 'company') {
       toast.info(isAdministrator ? 'Finish company profile setup before using the office workspace' : 'Company setup is incomplete. Ask an administrator to finish setup.')
       if (isAdministrator) setPage('company')
       return
     }
-    if (nextPage !== 'company' && !adminToolsPasswordConfigured && session?.permissions.includes('User Rights')) { setPage('company'); toast.info('Set an administrator password in Company Profile first'); return }
-    if ((nextPage === 'users' || nextPage === 'database') && !session?.permissions.includes('User Rights')) { toast.error('Only an administrator can open this page'); return }
-    if (nextPage !== 'settings' && nextPage !== 'keybindings' && !session?.permissions.includes(pageNames[nextPage])) { toast.error('Your account does not have access to that page'); return }
+    if (nextPage !== 'company' && !adminToolsPasswordConfigured && session?.isAdministrator) { setPage('company'); toast.info('Set an administrator password in Company Profile first'); return }
+    if ((nextPage === 'users' || nextPage === 'database') && !session?.isAdministrator) { toast.error('Only an administrator can open this page'); return }
+    if (!['settings', 'keybindings'].includes(nextPage) && !((nextPage === 'users' || nextPage === 'database' || nextPage === 'company') ? isAdministrator : session?.permissions.includes(pageNames[nextPage]))) { toast.error('Your account does not have access to that page'); return }
     if ((nextPage === 'users' || nextPage === 'database') && !canOpenAdminTools()) { setPendingAdminPage(nextPage); setPendingHistoryIndex(null); setAdminToolsPasswordInput(''); setAdminToolsPromptOpen(true); return }
     commitNavigation(nextPage)
   }
   const visitHistory = (next: number) => {
     const target = history[next]
-    if (target === 'company' && !session?.permissions.includes('User Rights')) { setPage('home'); toast.error('Only an administrator can open Company Profile'); return }
+      if (target === 'company' && !session?.isAdministrator) { setPage('home'); toast.error('Only an administrator can open Company Profile'); return }
     if ((target === 'users' || target === 'database') && !canOpenAdminTools()) { setPendingAdminPage(target); setPendingHistoryIndex(next); setAdminToolsPasswordInput(''); setAdminToolsPromptOpen(true); return }
     setHistoryIndex(next); setPage(target); setQuery('')
   }
@@ -299,14 +300,14 @@ export function App() {
 
   useEffect(() => {
     if (!session || (page !== 'users' && page !== 'database')) return
-    if (!session.permissions.includes('User Rights')) { setPage('home'); return }
+    if (!session.isAdministrator) { setPage('home'); return }
     if (!adminToolsPasswordConfigured) { setPage('company'); return }
     if (adminToolsUnlockedUntil && adminToolsUnlockedUntil > Date.now()) return
     setPendingAdminPage(page); setPendingHistoryIndex(null); setAdminToolsPasswordInput(''); setAdminToolsPromptOpen(true)
   }, [page, session, adminToolsPasswordConfigured, adminToolsUnlockedUntil])
 
   useEffect(() => {
-    if (!session || page !== 'company' || session.permissions.includes('User Rights')) return
+    if (!session || page !== 'company' || session.isAdministrator) return
     setPage('home')
     toast.error('Only an administrator can open Company Profile')
   }, [page, session])
@@ -338,11 +339,11 @@ export function App() {
   ]
 
   if (authLoading) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Checking sign-in…</div>
-  if (!session) return <SignInPage setup={!hasUsers} connection={officeConnection} onInstallationAuthorized={(status) => { setHasUsers(status.hasUsers); setCompanySetupNeeded(!status.hasCompanyProfile); setAdminToolsPasswordConfigured(status.hasAdminToolsPassword); setCompanyProfile(status.companyProfile || null) }} onSuccess={(value) => { const isAdministrator = value.permissions.includes('User Rights'); setSession(value); setHasUsers(true); setPage(isAdministrator && (companySetupNeeded || !adminToolsPasswordConfigured) ? 'company' : 'home') }} />
+  if (!session) return <SignInPage setup={!hasUsers} connection={officeConnection} onInstallationAuthorized={(status) => { setHasUsers(status.hasUsers); setCompanySetupNeeded(!status.hasCompanyProfile); setAdminToolsPasswordConfigured(status.hasAdminToolsPassword); setCompanyProfile(status.companyProfile || null) }} onSuccess={(value) => { setSession(value); setHasUsers(true); setPage(value.isAdministrator && (companySetupNeeded || !adminToolsPasswordConfigured) ? 'company' : 'home') }} />
 
-  const isAdministrator = session.permissions.includes('User Rights')
+  const isAdministrator = session.isAdministrator
   const adminToolsUnlocked = adminToolsUnlockedUntil !== null && adminToolsUnlockedUntil > Date.now()
-  const permittedNav = nav.filter(({ id }) => (id === 'settings' || id === 'keybindings' || session.permissions.includes(pageNames[id])) && (isAdministrator || (id !== 'users' && id !== 'database' && id !== 'company')))
+  const permittedNav = nav.filter(({ id }) => (id === 'users' || id === 'database' || id === 'company') ? isAdministrator : id === 'settings' || id === 'keybindings' || session.permissions.includes(pageNames[id]))
   const searchableRecords: SearchRecord[] = [
     ...accounts.map((row) => ({ page: 'accounts' as const, title: `${row.code} — ${row.description}`, detail: 'Chart of Accounts', kind: 'account', fields: { code: row.code, description: row.description, parent: row.parentCode ?? '' } })),
     ...items.map((row) => ({ page: 'items' as const, title: `${row.code} — ${row.description}`, detail: `Item · ${row.stockType}`, kind: 'item', fields: { code: row.code, description: row.description, unit: row.unit, stockType: row.stockType } })),
@@ -367,8 +368,8 @@ export function App() {
 
   return <ContextMenu>
     <ContextMenuTrigger className="block min-h-svh select-text">
-    <div className="flex h-svh min-h-0 flex-col gap-1.5 overflow-hidden bg-muted/50 p-2 sm:p-2.5">
-    <header className="flex h-11 shrink-0 items-center gap-2 rounded-lg border bg-background px-3 shadow-sm">
+    <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-background">
+    <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-3 sm:px-5">
       <div className="flex shrink-0 items-center gap-2">{companyLogo && <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted"><img src={companyLogo} alt="" className="size-7 object-contain" /></div>}<p className="max-w-44 truncate text-sm font-semibold leading-tight">{companyProfile?.name || 'TradeLedger Office'}</p></div>
       <Menubar className="min-w-0 flex-1 overflow-x-auto border-0 bg-transparent p-0">
         <MenubarMenu><MenubarTrigger>File</MenubarTrigger><MenubarContent><MenubarItem disabled={!isAllowed('purchase')} onClick={() => navigate('purchase')}>Purchase Challans…</MenubarItem><MenubarItem disabled={!isAllowed('sale')} onClick={() => navigate('sale')}>Sale Challans…</MenubarItem><MenubarSeparator /><MenubarItem disabled={!isAllowed('database')} onClick={() => navigate('database')}>Database tools…</MenubarItem><MenubarSeparator /><MenubarItem onClick={() => setConfirmAction('quit')}>Quit<MenubarShortcut>Alt+F4</MenubarShortcut></MenubarItem></MenubarContent></MenubarMenu>
@@ -382,14 +383,14 @@ export function App() {
       </Menubar>
       <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">{session.username}</Badge>
     </header>
-    <nav aria-label="Application toolbar" className="flex h-9 shrink-0 min-w-0 items-center gap-1 px-0.5">
+    <nav aria-label="Application toolbar" className="flex h-11 shrink-0 min-w-0 items-center gap-1 border-b bg-background px-2 sm:px-4">
       <div className="flex shrink-0 items-center gap-0.5">
         <Button variant="ghost" size="icon-sm" aria-label="Back" title="Back (Alt+Left)" disabled={historyIndex === 0} onClick={goBack}><ArrowLeft /></Button>
         <Button variant="ghost" size="icon-sm" aria-label="Forward" title="Forward (Alt+Right)" disabled={historyIndex >= history.length - 1} onClick={goForward}><ArrowRight /></Button>
         <Button variant="ghost" size="icon-sm" aria-label="Home" title="Home" onClick={() => navigate('home')}><Home /></Button>
       </div>
       <Separator orientation="vertical" className="mx-1 h-5 data-vertical:self-center" />
-      <h1 className="min-w-0 flex-1 truncate px-2 text-base font-semibold">{pageNames[page]}</h1>
+      <h1 className="min-w-0 flex-1 truncate px-2 text-sm font-semibold tracking-tight">{pageNames[page]}</h1>
       <div className="flex shrink-0 items-center gap-0.5">
         <Button variant="ghost" size="icon-sm" aria-label="Global search and commands" title="Search / commands (Ctrl+K)" onClick={() => { setPaletteQuery(''); setPaletteOpen(true) }}><Search /></Button>
         <Button variant="ghost" size="icon-sm" aria-label="Refresh" title="Refresh data" onClick={() => void refresh()} disabled={busy}><RefreshCw className={busy ? 'animate-spin' : ''} /></Button>
@@ -402,7 +403,7 @@ export function App() {
       <Separator orientation="vertical" className="mx-1 h-5 data-vertical:self-center" />
       <Button variant="ghost" size="icon-sm" aria-label="Log out" title="Log out" onClick={() => setConfirmAction('logout')}><LogOut /></Button>
     </nav>
-    <main className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto rounded-xl border bg-background p-4 shadow-sm md:p-5">
+    <main className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto bg-muted/25 p-4 sm:p-5 lg:p-6">
         {page === 'home' && <DashboardPage dashboard={dashboard} onNavigate={navigate} allowedPages={permittedNav.map(({ id }) => id)} username={session.username} company={companyProfile} logo={companyLogo} />}
         {page === 'database' && isAdministrator && adminToolsUnlocked && <Suspense fallback={<PageLoading />}><DatabaseToolsPage connection={officeConnection} isAdministrator={isAdministrator} /></Suspense>}
         {page === 'company' && isAdministrator && <CompanyProfilePage profile={companyProfile} onboarding={companySetupNeeded} isAdministrator={isAdministrator} adminToolsPasswordConfigured={adminToolsPasswordConfigured} onSave={async (value, password) => { const saved = await window.office.company.save(value); if (password) { await window.office.security.configureAdminToolsPassword(password); setAdminToolsPasswordConfigured(true); setAdminToolsUnlockedUntil(null) } setCompanyProfile(saved); setCompanySetupNeeded(false); await refresh(); toast.success(password ? 'Company profile and administrator password saved' : 'Company profile saved'); if (companySetupNeeded || password && !adminToolsPasswordConfigured) { setPage('home'); setHistory(['home']); setHistoryIndex(0) } }} />}
@@ -453,7 +454,7 @@ export function App() {
     <Dialog open={adminToolsPromptOpen} onOpenChange={(open) => { if (adminToolsVerifying) return; if (open) setAdminToolsPromptOpen(true); else cancelAdminToolsPrompt() }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Administrator access</DialogTitle><DialogDescription>Enter your administrator password to open User Rights or Database Tools. These pages lock again after 10 minutes.</DialogDescription></DialogHeader>
-        <form className="grid gap-4" onSubmit={(event) => void unlockAdminTools(event)}><label className="grid gap-2 text-sm font-medium" htmlFor="admin-tools-unlock-password">Administrator password<Input id="admin-tools-unlock-password" type="password" autoComplete="current-password" required autoFocus value={adminToolsPasswordInput} onChange={(event) => setAdminToolsPasswordInput(event.target.value)} /></label><div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={adminToolsVerifying} onClick={cancelAdminToolsPrompt}>Cancel</Button><Button type="submit" disabled={adminToolsVerifying || !adminToolsPasswordInput}>{adminToolsVerifying ? 'Checking…' : 'Continue'}</Button></div></form>
+        <form className="grid gap-4" onSubmit={(event) => void unlockAdminTools(event)}><Field label="Administrator password" id="admin-tools-unlock-password"><Input id="admin-tools-unlock-password" type="password" autoComplete="current-password" required autoFocus value={adminToolsPasswordInput} onChange={(event) => setAdminToolsPasswordInput(event.target.value)} /></Field><div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={adminToolsVerifying} onClick={cancelAdminToolsPrompt}>Cancel</Button><Button type="submit" disabled={adminToolsVerifying || !adminToolsPasswordInput}>{adminToolsVerifying ? 'Checking…' : 'Continue'}</Button></div></form>
       </DialogContent>
     </Dialog>
     <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>

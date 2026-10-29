@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Download, Printer } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Printer } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,6 +38,7 @@ import {
 import { REPORT_NAMES } from "@/lib/report-names";
 import { Field, FormSelect } from "@/components/forms/Fields";
 import { formatMoney as money } from "@/lib/formatters";
+import { createXlsx } from "@/lib/xlsx";
 
 type ReportRow = Record<string, string | number>;
 
@@ -275,6 +277,7 @@ export function ReportsPage({
   const [to, setTo] = useState("");
   const [filter, setFilter] = useState("");
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
   const isAsOfReport = AS_OF_REPORTS.includes(reportName);
   const fromDate = AS_OF_REPORTS.includes(reportName) ? "" : from;
   const toDate = isAsOfReport ? to || karachiToday() : to;
@@ -308,6 +311,9 @@ export function ReportsPage({
   const columns = rows.length
     ? Object.keys(rows[0])
     : (REPORT_COLUMNS[reportName] ?? ["Result"]);
+  const isNumericColumn = (column: string) =>
+    rows.some((row) => typeof row[column] === "number") ||
+    /amount|balance|debit|credit|quantity|rate|purchase|sale|total|receipt|payment|days outstanding|^lines$/i.test(column);
   const formatValue = (column: string, value: number) => {
     const stockBalance =
       [
@@ -387,16 +393,44 @@ export function ReportsPage({
       .join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+      new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }),
     );
     link.download = `${reportName.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}.csv`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
   };
+  const exportExcel = () => {
+    const blob = createXlsx(reportName, printSubtitle, columns, rows);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${reportName.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}.xlsx`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const exportPdf = async () => {
+    if (typeof window.office?.reports?.exportPdf !== "function") {
+      toast.info("PDF export is unavailable in this app session. Use Print preview, then choose Save as PDF.");
+      setPrintPreviewOpen(true);
+      return;
+    }
+    setPdfExporting(true);
+    document.body.classList.add("printing-document");
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      const result = await window.office.reports.exportPdf(`${reportName.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}${columns.length > 5 ? "-landscape" : ""}`, columns.length > 5);
+      if (!result.canceled && result.path) toast.success(`PDF saved · ${result.path}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export report as PDF");
+    } finally {
+      document.body.classList.remove("printing-document");
+      setPdfExporting(false);
+    }
+  };
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-xl font-semibold tracking-tight">
           {reportName || "Reports"}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -469,7 +503,7 @@ export function ReportsPage({
                 </p>
               )}
             </FieldGroup>
-            <div className="mt-4 flex flex-col gap-2">
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <Button
                 variant="outline"
                 disabled={!reportName || invalidDateRange}
@@ -478,13 +512,21 @@ export function ReportsPage({
                 <Download data-icon="inline-start" />
                 Export CSV
               </Button>
+              <Button variant="outline" disabled={!reportName || invalidDateRange} onClick={exportExcel}>
+                <FileSpreadsheet data-icon="inline-start" />
+                Export Excel
+              </Button>
+              <Button variant="outline" disabled={!reportName || invalidDateRange || pdfExporting} onClick={() => void exportPdf()}>
+                <FileText data-icon="inline-start" />
+                {pdfExporting ? "Preparing PDF…" : "Export PDF"}
+              </Button>
               <Button
                 variant="outline"
                 disabled={!reportName || invalidDateRange}
                 onClick={() => setPrintPreviewOpen(true)}
               >
                 <Printer data-icon="inline-start" />
-                Print report
+                Print preview
               </Button>
             </div>
           </CardContent>
@@ -502,7 +544,7 @@ export function ReportsPage({
                 <TableHeader>
                   <TableRow>
                     {columns.map((column) => (
-                      <TableHead className="px-4 py-3" key={column}>
+                      <TableHead className={`px-4 py-3 ${isNumericColumn(column) ? "text-right" : ""}`} key={column}>
                         {column}
                       </TableHead>
                     ))}
@@ -559,7 +601,7 @@ export function ReportsPage({
                                 : null;
                         return (
                           <TableCell
-                            className="px-4 py-3 align-top"
+                            className={`px-4 py-3 align-top ${isNumericColumn(column) ? "text-right tabular-nums" : ""}`}
                             key={column}
                           >
                             {reference ? (
@@ -621,6 +663,7 @@ export function ReportsPage({
         subtitle={printSubtitle}
         columns={columns}
         rows={printRows}
+        numericColumns={columns.filter(isNumericColumn)}
       />
       <PrintPreviewDialog
         open={printPreviewOpen}
@@ -632,6 +675,7 @@ export function ReportsPage({
         subtitle={printSubtitle}
         columns={columns}
         rows={printRows}
+        numericColumns={columns.filter(isNumericColumn)}
       />
     </section>
   );

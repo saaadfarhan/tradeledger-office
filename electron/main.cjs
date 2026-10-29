@@ -64,6 +64,16 @@ function getConnectionConfigPath() {
   return path.join(app.getPath('userData'), 'office-connection.json')
 }
 
+function getBackupDirectoryConfigPath() { return path.join(app.getPath('userData'), 'backup-directory.json') }
+
+async function getBackupDirectory() {
+  try {
+    const config = JSON.parse(await fs.readFile(getBackupDirectoryConfigPath(), 'utf8'))
+    if (typeof config.directory === 'string' && path.isAbsolute(config.directory)) return config.directory
+  } catch { /* use default */ }
+  return path.join(path.dirname(getDatabasePath()), 'backups')
+}
+
 function getServerCertificatePaths() {
   const directory = path.join(app.getPath('userData'), 'office-server-certificate')
   return { directory, key: path.join(directory, 'server-key.pem'), cert: path.join(directory, 'server-cert.pem') }
@@ -289,7 +299,7 @@ async function createServerCertificate() {
 
 async function startOfficeServer({ automatic = false } = {}) {
   if (!officeStore || remoteClient) throw new Error('Only the computer with the local office database can host shared access')
-  if (!automatic && !activeSession?.permissions.includes('User Rights')) throw new Error('Only an administrator can start the office server')
+  if (!automatic && !activeSession?.isAdministrator) throw new Error('Only an administrator can start the office server')
   if (officeServer) return officeServer.info
 
   const [tls, deviceAuthority] = await Promise.all([createServerCertificate(), createDeviceAuthority()])
@@ -426,12 +436,14 @@ function invokeOfficeOperation(channel, args, session, deviceId = 'local') {
     if (channel === 'auth:authorize-bootstrap' && deviceId !== 'local') throw new Error('Installation approval must be imported on the company computer itself')
     if (requiresAuthenticatedSession(channel)) {
       if (!session) throw new Error('Please sign in to continue')
+      const adminOnly = channel === 'company:save' || channel.startsWith('security:') || channel.startsWith('users:') || channel.startsWith('devices:') || channel.startsWith('database:') || channel.startsWith('presets:')
+      if (adminOnly && !session.isAdministrator) throw new Error('Only an administrator can perform this action')
       const requiredPermission = typeof definition.permission === 'function' ? definition.permission(...args) : definition.permission
-      if (requiredPermission && !(Array.isArray(requiredPermission)
+      if (requiredPermission && !adminOnly && !(Array.isArray(requiredPermission)
         ? requiredPermission.some((entry) => session.permissions.includes(entry))
         : session.permissions.includes(requiredPermission))) throw new Error('Your account does not have permission for this operation')
     }
-    const needsAdminToolsUnlock = channel.startsWith('users:') || channel.startsWith('devices:') || channel.startsWith('database:')
+    const needsAdminToolsUnlock = channel.startsWith('users:') || channel.startsWith('devices:') || channel.startsWith('database:') || channel.startsWith('presets:')
     if (needsAdminToolsUnlock && !isAdminToolsUnlocked(session?.username, deviceId)) throw new Error('Unlock admin-only pages with the separate admin-tools password first')
     const unlockKey = adminToolsKey(session?.username, deviceId)
     if (channel === 'security:unlock' && (adminToolsFailures.get(unlockKey)?.blockedUntil || 0) > Date.now()) throw new Error('Too many incorrect admin-tools passwords. Wait 5 minutes and try again.')
@@ -524,8 +536,8 @@ function registerIpc() {
     return activeSession
   })
   registerHandler('auth:logout', () => { officeStore.setCurrentUser(activeSession?.username); activeSession = null })
-  registerHandler('security:unlock', (password) => officeStore.verifyAdminToolsPassword(password), 'User Rights')
-  registerHandler('security:configure-admin-tools-password', (input) => officeStore.configureAdminToolsPassword(input), 'User Rights')
+  registerHandler('security:unlock', (password) => officeStore.verifyAdminToolsPassword(password))
+  registerHandler('security:configure-admin-tools-password', (input) => officeStore.configureAdminToolsPassword(input))
   registerIpcHandler('device:import-credential', async (event, input) => {
     assertTrustedSender(event)
     if (!hasSecureCredentialStorage()) throw new Error('Secure OS credential storage is unavailable. On Debian, install and sign in to a Secret Service keyring such as GNOME Keyring or KWallet.')
@@ -627,15 +639,30 @@ function registerIpc() {
   registerHandler('users:list', () => officeStore.listUsers(), 'User Rights')
   registerHandler('users:save', (value) => officeStore.saveUser(value), 'User Rights')
   registerHandler('users:remove', (username) => officeStore.deleteUser(String(username)), 'User Rights')
+  registerHandler('presets:list', () => officeStore.listPermissionPresets(), 'User Rights')
+  registerHandler('presets:save', (value) => officeStore.savePermissionPreset(value), 'User Rights')
+  registerHandler('presets:remove', (name) => officeStore.deletePermissionPreset(String(name)), 'User Rights')
   registerHandler('devices:list', () => officeStore.listDevices(), 'User Rights')
   registerHandler('devices:create', async (input) => issueDeviceCredential(input), 'User Rights')
   registerHandler('devices:revoke', (deviceId) => officeStore.revokeDevice(String(deviceId)), 'User Rights')
   registerHandler('audit:list', () => officeStore.auditEvents(), 'Audit Log')
   registerHandler('database:backup', async () => {
-    const backupDirectory = path.join(path.dirname(getDatabasePath()), 'backups')
+    const backupDirectory = await getBackupDirectory()
+    await fs.mkdir(backupDirectory, { recursive: true })
     const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
     const target = path.join(backupDirectory, `purchase-sale-${timestamp}.sqlite`)
     return { ...await officeStore.backupTo(target), path: target }
+  }, 'User Rights')
+  registerHandler('database:backup-directory', async () => ({ directory: await getBackupDirectory() }), 'User Rights')
+  registerHandler('database:choose-backup-directory', async () => {
+    const choice = await dialog.showOpenDialog(mainWindow, { title: 'Choose backup folder', properties: ['openDirectory', 'createDirectory'] })
+    if (choice.canceled || !choice.filePaths[0]) return { canceled: true, directory: await getBackupDirectory() }
+    const directory = path.resolve(choice.filePaths[0])
+    await fs.mkdir(directory, { recursive: true })
+    const target = getBackupDirectoryConfigPath()
+    await fs.writeFile(`${target}.tmp`, JSON.stringify({ directory }), { mode: 0o600 })
+    await fs.rename(`${target}.tmp`, target)
+    return { canceled: false, directory }
   }, 'User Rights')
   registerHandler('database:export', async () => {
     const choice = await dialog.showSaveDialog(mainWindow, {
@@ -648,9 +675,23 @@ function registerIpc() {
     await fs.writeFile(choice.filePath, `${JSON.stringify(payload, null, 2)}\n`)
     return { canceled: false, path: choice.filePath, bytes: (await fs.stat(choice.filePath)).size }
   }, 'User Rights')
+  registerIpcHandler('reports:export-pdf', async (event, { fileName, landscape }) => {
+    assertTrustedSender(event)
+    if (!activeSession?.permissions?.includes('Reports')) throw new Error('Your account does not have permission for this operation')
+    const safeName = String(fileName || 'report').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 100)
+    const choice = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export report as PDF',
+      defaultPath: path.join(app.getPath('documents'), `${safeName}.pdf`),
+      filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+    })
+    if (choice.canceled || !choice.filePath) return { canceled: true }
+    const pdf = await event.sender.printToPDF({ pageSize: 'A4', landscape: Boolean(landscape), printBackground: true, margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 } })
+    await fs.writeFile(choice.filePath, pdf)
+    return { canceled: false, path: choice.filePath }
+  })
   registerHandler('database:verify', () => officeStore.verifyDatabase(), 'User Rights')
   registerHandler('database:open-backups', async () => {
-    const directory = path.join(path.dirname(getDatabasePath()), 'backups')
+    const directory = await getBackupDirectory()
     await fs.mkdir(directory, { recursive: true })
     const error = await shell.openPath(directory)
     if (error) throw new Error(`Could not open backup folder: ${error}`)
@@ -687,28 +728,28 @@ function registerIpc() {
   })
   registerIpcHandler('server:start', async (event) => {
     assertTrustedSender(event)
-    if (!activeSession?.permissions.includes('User Rights') || !isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
+    if (!activeSession?.isAdministrator || !isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
     return startOfficeServer()
   })
   registerIpcHandler('server:stop', async (event) => {
     assertTrustedSender(event)
-    if (!activeSession?.permissions.includes('User Rights')) throw new Error('Only an administrator can stop the office server')
+    if (!activeSession?.isAdministrator) throw new Error('Only an administrator can stop the office server')
     if (!isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
     await stopOfficeServer()
   })
   registerIpcHandler('server:status', (event) => {
     assertTrustedSender(event)
-    if (!activeSession?.permissions.includes('User Rights') || !isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
+    if (!activeSession?.isAdministrator || !isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
     return officeServer?.info ?? null
   })
   registerIpcHandler('server:get-autostart', (event) => {
     assertTrustedSender(event)
-    if (!activeSession?.permissions.includes('User Rights') || !isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
+    if (!activeSession?.isAdministrator || !isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
     return process.platform === 'win32' && app.getLoginItemSettings({ args: ['--office-start-hidden'] }).openAtLogin
   })
   registerIpcHandler('server:set-autostart', async (event, enabled) => {
     assertTrustedSender(event)
-    if (!activeSession?.permissions.includes('User Rights')) throw new Error('Only an administrator can change host startup settings')
+    if (!activeSession?.isAdministrator) throw new Error('Only an administrator can change host startup settings')
     if (!isAdminToolsUnlocked(activeSession.username, 'local')) throw new Error('Unlock Database Tools with the separate admin-tools password first')
     if (process.platform !== 'win32' || !app.isPackaged) throw new Error('Automatic host startup is available in the installed Windows app')
     if (enabled) await startOfficeServer()
