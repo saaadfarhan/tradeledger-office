@@ -118,9 +118,9 @@ function containsRequiredControl(node: React.ReactNode): boolean {
   })
 }
 
-export function Field({ label, id, children, required = false }: { label: string; id: string; children: React.ReactNode; required?: boolean }) {
+export function Field({ label, id, children, required = false, className }: { label: string; id: string; children: React.ReactNode; required?: boolean; className?: string }) {
   const isRequired = required || containsRequiredControl(children)
-  return <UiField><FieldLabel htmlFor={id} className={isRequired ? "gap-0" : undefined}>{label}{isRequired && <span aria-hidden="true" className="ml-px text-destructive">*</span>}</FieldLabel>{children}</UiField>
+  return <UiField className={className}><FieldLabel htmlFor={id} className={isRequired ? "gap-0" : undefined}>{label}{isRequired && <span aria-hidden="true" className="ml-px text-destructive">*</span>}</FieldLabel>{children}</UiField>
 }
 
 export function PersistentSelectField({ label, id, value, onChange, options, onAdd, required = true }: { label: string; id: string; value: string; onChange: (value: string) => void; options: string[]; onAdd: (value: string) => Promise<void>; required?: boolean }) {
@@ -148,7 +148,7 @@ export function PersistentSelectField({ label, id, value, onChange, options, onA
     catch (error) { toast.error(error instanceof Error ? error.message : `Could not save ${label.toLowerCase()}`) }
     finally { setSaving(false) }
   }
-  return <Field label={label} id={id} required={required}>
+  return <Field label={label} id={id} required={required} className="min-w-0">
     <div className="flex min-w-0 gap-2">
       <div className="min-w-0 flex-1">
         <FormSelect id={id} value={value} onChange={onChange} options={options.map((option) => ({ value: option, label: option }))} placeholder={`Select ${label.toLowerCase()}`} clearable={false} emptyHint={`Add a ${label.toLowerCase()} to begin.`} />
