@@ -72,21 +72,6 @@ public final class SQLiteOfficeData implements AutoCloseable {
         while (rows.next()) result.add(new String[] {rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4)});
         rows.close(); return result;
     }
-    public List<String[]> stockTypes() {
-        List<String[]> result = new ArrayList<String[]>();
-        try {
-            ResultSet rows = database.connection().createStatement().executeQuery("SELECT code, description FROM stock_types ORDER BY code");
-            while (rows.next()) result.add(new String[] {rows.getString(1), rows.getString(2)});
-            rows.close();
-            return result;
-        } catch (SQLException error) { throw new IllegalArgumentException("Cannot load stock types: " + error.getMessage(), error); }
-    }
-    public void saveStockType(String code, String description) {
-        try {
-            PreparedStatement statement = database.connection().prepareStatement("INSERT INTO stock_types(code, description) VALUES (?, ?)");
-            statement.setString(1, code); statement.setString(2, description); statement.executeUpdate(); statement.close();
-        } catch (SQLException error) { throw new IllegalArgumentException("Cannot save stock type: " + error.getMessage(), error); }
-    }
     public void saveChallanAndMovements(Challan challan) {
         Connection connection = database.connection();
         try {

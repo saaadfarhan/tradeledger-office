@@ -20,18 +20,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { ConfirmActionDialog } from "@/components/feedback/ConfirmActionDialog";
-import type { Item, OpeningBalance, StockMovement, StockType } from "@/types";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { Item, OpeningBalance, StockMovement } from "@/types";
 import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import { formatMoney as money } from "@/lib/formatters";
-import { FormSelect, Field } from "@/components/forms/Fields";
+import { FormSelect, Field, SearchableItemSelect } from "@/components/forms/Fields";
 
 export function LocationsPage({
   locations,
@@ -165,23 +164,22 @@ export function LocationsPage({
           </div>
         </CardContent>
       </Card>
-      <Sheet
+      <Dialog
         open={editorOpen}
         onOpenChange={(open) => {
           setEditorOpen(open);
           if (!open) setName("");
         }}
       >
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(92vw,36rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
+        <DialogContent
+          className="flex max-h-[90vh] w-[min(92vw,56rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>Add location</SheetTitle>
-            <SheetDescription>
+          <DialogHeader className="border-b px-6 py-5">
+            <DialogTitle>Add location</DialogTitle>
+            <DialogDescription>
               Saved locations become available in every location selector.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <form
             onSubmit={(event) => void submit(event)}
             className="flex min-h-0 flex-1 flex-col"
@@ -200,7 +198,7 @@ export function LocationsPage({
                 />
               </Field>
             </FieldGroup>
-            <SheetFooter className="mt-0 flex-row justify-end border-t px-6 py-4">
+            <DialogFooter className="mt-0 flex-row justify-end border-t px-6 py-5 pb-6">
               <Button
                 type="button"
                 variant="outline"
@@ -215,217 +213,10 @@ export function LocationsPage({
                 <Plus data-icon="inline-start" />
                 {saving ? "Saving…" : "Add location"}
               </Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
-    </section>
-  );
-}
-
-export function StockTypesPage({
-  rows,
-  onSave,
-  onDelete,
-}: {
-  rows: StockType[];
-  onSave: (value: StockType) => Promise<void>;
-  onDelete: (code: string) => Promise<void>;
-}) {
-  const [code, setCode] = useState("");
-  const [description, setDescription] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleteCode, setDeleteCode] = useState<string | null>(null);
-  const reset = () => {
-    setCode("");
-    setDescription("");
-    setEditing(false);
-    setOpen(false);
-  };
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      await onSave({
-        code: code.trim().toUpperCase(),
-        description: description.trim(),
-      });
-      reset();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not save stock type",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-  function edit(row: StockType) {
-    setCode(row.code);
-    setDescription(row.description);
-    setEditing(true);
-    setOpen(true);
-  }
-  function create() {
-    setCode("");
-    setDescription("");
-    setEditing(false);
-    setOpen(true);
-  }
-  return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Stock Types</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage the classifications available in the Item master.
-          </p>
-        </div>
-        <Button onClick={create}>
-          <Plus data-icon="inline-start" />
-          Add stock type
-        </Button>
-      </div>
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Available stock types</CardTitle>
-          <CardDescription>
-            {rows.length} type{rows.length === 1 ? "" : "s"} · Built-in REG and
-            SER types cannot be deleted.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.code}>
-                  <TableCell className="font-medium">{row.code}</TableCell>
-                  <TableCell>{row.description}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    <Button variant="ghost" size="sm" onClick={() => edit(row)}>
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={["REG", "SER"].includes(row.code)}
-                      onClick={() => setDeleteCode(row.code)}
-                    >
-                      Delete
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!rows.length && (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="h-20 text-center text-muted-foreground"
-                  >
-                    No stock types.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-      <Sheet
-        open={open}
-        onOpenChange={(value) => {
-          setOpen(value);
-          if (!value) reset();
-        }}
-      >
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(92vw,36rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
-        >
-          <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>
-              {editing ? `Edit ${code}` : "Add stock type"}
-            </SheetTitle>
-            <SheetDescription>
-              Set the code and description used by item records.
-            </SheetDescription>
-          </SheetHeader>
-          <form
-            onSubmit={(event) => void submit(event)}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <FieldGroup className="flex-1 content-start overflow-y-auto p-6">
-              <FormSectionHeading
-                title="Stock type details"
-                className="w-full"
-              />
-              <Field label="Stock type code" id="stock-type-code">
-                <Input
-                  id="stock-type-code"
-                  required
-                  maxLength={20}
-                  disabled={editing}
-                  value={code}
-                  onChange={(event) =>
-                    setCode(event.target.value.toUpperCase())
-                  }
-                />
-              </Field>
-              <Field label="Description" id="stock-type-description">
-                <Input
-                  id="stock-type-description"
-                  required
-                  maxLength={100}
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                />
-              </Field>
-            </FieldGroup>
-            <SheetFooter className="mt-0 flex-row justify-end border-t px-6 py-4">
-              <Button type="button" variant="outline" onClick={reset}>
-                Cancel
-              </Button>
-              <Button disabled={saving}>
-                {saving
-                  ? "Saving…"
-                  : editing
-                    ? "Save changes"
-                    : "Add stock type"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
-      <ConfirmActionDialog
-        open={deleteCode !== null}
-        onOpenChange={(value) => {
-          if (!value) setDeleteCode(null);
-        }}
-        title={`Delete stock type ${deleteCode ?? ""}?`}
-        description="A type assigned to any item cannot be deleted."
-        confirmLabel="Delete type"
-        onConfirm={() => {
-          const target = deleteCode;
-          if (target)
-            void onDelete(target)
-              .then(() => toast.success("Stock type deleted"))
-              .catch((error) =>
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not delete stock type",
-                ),
-              )
-              .finally(() => setDeleteCode(null));
-        }}
-      />
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -543,18 +334,17 @@ export function OpeningBalancesPage({
           </Table>
         </CardContent>
       </Card>
-      <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(92vw,38rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent
+          className="flex max-h-[90vh] w-[min(92vw,48rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>Add opening stock</SheetTitle>
-            <SheetDescription>
+          <DialogHeader className="border-b px-6 py-5">
+            <DialogTitle>Add opening stock</DialogTitle>
+            <DialogDescription>
               Rate is automatically taken from the selected item’s current
               purchase rate. Quantity must be positive.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <form
             onSubmit={(event) => void submit(event)}
             className="flex min-h-0 flex-1 flex-col"
@@ -565,16 +355,13 @@ export function OpeningBalancesPage({
                 className="w-full"
               />
               <Field label="Item" id="opening-item" required>
-                <FormSelect
+                <SearchableItemSelect
                   id="opening-item"
                   value={itemCode}
                   onChange={setItemCode}
+                  items={items}
                   placeholder="Select an item"
                   emptyHint="Add the product first on the Items page, then return here."
-                  options={items.map((item) => ({
-                    value: item.code,
-                    label: `${item.code} — ${item.description}`,
-                  }))}
                 />
               </Field>
               <Field label="Location" id="opening-location" required>
@@ -614,7 +401,7 @@ export function OpeningBalancesPage({
                 />
               </Field>
             </FieldGroup>
-            <SheetFooter className="mt-0 flex-row justify-end border-t px-6 py-4">
+            <DialogFooter className="mt-0 flex-row justify-end border-t px-6 py-5 pb-6">
               <Button
                 type="button"
                 variant="outline"
@@ -628,10 +415,10 @@ export function OpeningBalancesPage({
               >
                 {saving ? "Saving…" : "Save opening balance"}
               </Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -768,18 +555,17 @@ export function TransferPage({
           </div>
         </CardContent>
       </Card>
-      <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(92vw,38rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent
+          className="flex max-h-[90vh] w-[min(92vw,48rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>Transfer item stock</SheetTitle>
-            <SheetDescription>
+          <DialogHeader className="border-b px-6 py-5">
+            <DialogTitle>Transfer item stock</DialogTitle>
+            <DialogDescription>
               Both location movements save together. The destination must differ
               from the source.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <form
             onSubmit={(event) => void submit(event)}
             className="flex min-h-0 flex-1 flex-col"
@@ -787,16 +573,13 @@ export function TransferPage({
             <FieldGroup className="min-h-0 flex-1 content-start gap-4 overflow-y-auto p-6">
               <FormSectionHeading title="Item" className="w-full" />
               <Field label="Item" id="transfer-item" required>
-                <FormSelect
+                <SearchableItemSelect
                   id="transfer-item"
                   value={itemCode}
                   onChange={setItemCode}
+                  items={items}
                   placeholder="Select an item"
                   emptyHint="Add the product first on the Items page, then return here."
-                  options={items.map((item) => ({
-                    value: item.code,
-                    label: `${item.code} — ${item.description}`,
-                  }))}
                 />
               </Field>
               <FormSectionHeading title="Transfer route" className="w-full" />
@@ -843,7 +626,7 @@ export function TransferPage({
                 </strong>
               </p>
             </FieldGroup>
-            <SheetFooter className="mt-0 flex-row justify-end border-t px-6 py-4">
+            <DialogFooter className="mt-0 flex-row justify-end border-t px-6 py-5 pb-6">
               <Button
                 type="button"
                 variant="outline"
@@ -864,10 +647,10 @@ export function TransferPage({
               >
                 {saving ? "Transferring…" : "Transfer stock"}
               </Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

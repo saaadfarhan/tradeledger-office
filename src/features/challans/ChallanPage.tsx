@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,14 +24,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -46,7 +38,7 @@ import type {
   ChallanInputLine,
   CompanyProfile,
   Item,
-  StockType,
+  ItemAttributes,
 } from "@/types";
 import {
   PrintDocument,
@@ -57,7 +49,7 @@ import { DatePicker } from "@/components/forms/DatePicker";
 import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import { formatMoney as money } from "@/lib/formatters";
 import { todayIsoDate as today } from "@/lib/formatters";
-import { FormSelect, Field } from "@/components/forms/Fields";
+import { FormSelect, Field, PersistentSelectField, SearchableItemSelect } from "@/components/forms/Fields";
 
 function PrinterIcon() {
   return <Printer className="mr-2 size-4" />;
@@ -69,7 +61,6 @@ export function ChallanPage({
   items,
   accounts,
   locations,
-  stockTypes,
   company,
   logo,
   onPost,
@@ -82,7 +73,6 @@ export function ChallanPage({
   items: Item[];
   accounts: Account[];
   locations: string[];
-  stockTypes: StockType[];
   company: CompanyProfile | null;
   logo: string | null;
   onPost: (value: {
@@ -111,13 +101,18 @@ export function ChallanPage({
     labelOnly: boolean;
     quantity: number;
     rate: number;
+    rateSource: "ITEM_RATE" | "PURCHASE_RATE" | "SALE_RATE" | "CUSTOM";
+    discountPercent: number;
+    discountAmount: number;
+    brand: string;
+    category: string;
   };
   const [number, setNumber] = useState("");
   const [date, setDate] = useState(today());
   const [party, setParty] = useState("");
   const [location, setLocation] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([
-    { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0 },
+    { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0, rateSource: type === "PURCHASE" ? "PURCHASE_RATE" : "SALE_RATE", discountPercent: 0, discountAmount: 0, brand: "", category: "" },
   ]);
   const [posting, setPosting] = useState(false);
   const [reservingNumber, setReservingNumber] = useState(false);
@@ -133,10 +128,20 @@ export function ChallanPage({
   const [itemBrand, setItemBrand] = useState("");
   const [itemCategory, setItemCategory] = useState("");
   const [itemUnit, setItemUnit] = useState("Unit");
-  const [itemStockType, setItemStockType] = useState(stockTypes[0]?.code ?? "");
   const [itemPurchaseRate, setItemPurchaseRate] = useState("0");
+  const [itemRate, setItemRate] = useState("0");
   const [itemSaleRate, setItemSaleRate] = useState("0");
   const [creatingItem, setCreatingItem] = useState(false);
+  const [itemAttributes, setItemAttributes] = useState<ItemAttributes>({ brands: [], categories: [] });
+  useEffect(() => {
+    const load = () => { void window.office.items.attributes().then(setItemAttributes).catch(() => {}); };
+    load();
+    return window.office.sync.onDataChanged(load);
+  }, []);
+  async function addItemAttribute(kind: "brand" | "category", value: string) {
+    setItemAttributes(await window.office.items.addAttribute({ kind, value }));
+    toast.success(`${kind === "brand" ? "Brand" : "Category"} saved`);
+  }
   const idKind = type === "PURCHASE" ? "purchaseChallan" : "saleChallan";
   async function beginCreate() {
     if (!locations.length) {
@@ -154,7 +159,7 @@ export function ChallanPage({
       setParty("");
       setLocation("");
       setLines([
-        { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0 },
+        { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0, rateSource: type === "PURCHASE" ? "PURCHASE_RATE" : "SALE_RATE", discountPercent: 0, discountAmount: 0, brand: "", category: "" },
       ]);
       setEditorOpen(true);
     } catch (error) {
@@ -207,27 +212,42 @@ export function ChallanPage({
         String(index + 1),
         line.itemCode || "—",
         item?.description ?? line.itemLabel ?? "",
+        line.brand || item?.brand || "—",
+        line.category || item?.category || "—",
         `${line.quantity}${item?.unit ? ` ${item.unit}` : ""}`,
         money(line.rate),
         money(line.amount),
       ];
     }) ?? [];
-  const setLine = (index: number, updates: Partial<DraftLine>) =>
-    setLines((current) =>
-      current.map((line, lineIndex) =>
-        lineIndex === index ? { ...line, ...updates } : line,
-      ),
-    );
   const lineRate = (line: DraftLine) => {
     const item = items.find((row) => row.code === line.itemCode);
-    return line.labelOnly
-      ? line.rate
-      : type === "PURCHASE"
-        ? (item?.purchaseRate ?? 0)
-        : (item?.saleRate ?? 0);
+    if (line.labelOnly || line.rateSource === "CUSTOM") return line.rate;
+    if (line.rateSource === "ITEM_RATE") return item?.itemRate ?? 0;
+    if (line.rateSource === "PURCHASE_RATE") return item?.purchaseRate ?? 0;
+    return item?.saleRate ?? 0;
   };
+  const setLine = (index: number, updates: Partial<DraftLine>) => setLines((current) => current.map((line, lineIndex) => {
+    if (lineIndex !== index) return line;
+    const next = { ...line, ...updates };
+    if (Object.hasOwn(updates, 'rateSource')) {
+      const selected = items.find((item) => item.code === next.itemCode);
+      next.rate = updates.rateSource === 'CUSTOM' ? lineRate(line) : updates.rateSource === 'ITEM_RATE' ? selected?.itemRate ?? 0 : updates.rateSource === 'PURCHASE_RATE' ? selected?.purchaseRate ?? 0 : selected?.saleRate ?? 0;
+    }
+    if (Object.hasOwn(updates, 'itemCode')) {
+      const selectedItem = items.find((item) => item.code === next.itemCode);
+      next.brand = selectedItem?.brand ?? '';
+      next.category = selectedItem?.category ?? '';
+    }
+    const gross = next.quantity * lineRate(next);
+    if (Object.hasOwn(updates, 'discountAmount')) next.discountPercent = gross > 0 ? next.discountAmount / gross * 100 : 0;
+    else if (Object.hasOwn(updates, 'discountPercent')) next.discountAmount = gross * next.discountPercent / 100;
+    else if (Object.hasOwn(updates, 'quantity') || Object.hasOwn(updates, 'rate') || Object.hasOwn(updates, 'rateSource') || Object.hasOwn(updates, 'itemCode')) next.discountAmount = gross * next.discountPercent / 100;
+    return next;
+  }));
+  const lineGross = (line: DraftLine) => line.quantity * lineRate(line);
+  const lineAmount = (line: DraftLine) => Math.max(0, lineGross(line) - line.discountAmount);
   const total = lines.reduce(
-    (sum, line) => sum + Number(line.quantity || 0) * lineRate(line),
+    (sum, line) => sum + lineAmount(line),
     0,
   );
   function beginEdit(row: Challan) {
@@ -244,22 +264,23 @@ export function ChallanPage({
         labelOnly: !line.itemCode,
         quantity: line.quantity,
         rate: line.rate,
+        rateSource: line.itemCode ? (line.rate === (items.find((item) => item.code === line.itemCode)?.itemRate ?? -1) ? "ITEM_RATE" : line.rate === (items.find((item) => item.code === line.itemCode)?.purchaseRate ?? -1) ? "PURCHASE_RATE" : line.rate === (items.find((item) => item.code === line.itemCode)?.saleRate ?? -1) ? "SALE_RATE" : "CUSTOM") : "CUSTOM",
+        discountPercent: line.discountPercent ?? 0,
+        discountAmount: line.discountAmount ?? 0,
+        brand: line.brand ?? items.find((item) => item.code === line.itemCode)?.brand ?? "",
+        category: line.category ?? items.find((item) => item.code === line.itemCode)?.category ?? "",
       })),
     );
     setEditorOpen(true);
   }
   async function beginCreateItem(index: number) {
-    if (!stockTypes.length) {
-      toast.error("No stock types are available. Add a stock type first.");
-      return;
-    }
     setCreateItemTarget(index);
     setItemDescription("");
       setItemBrand("");
       setItemCategory("");
     setItemUnit("Unit");
-    setItemStockType(stockTypes[0].code);
     setItemPurchaseRate("0");
+    setItemRate("0");
     setItemSaleRate("0");
     setCreateItemOpen(true);
   }
@@ -273,14 +294,14 @@ export function ChallanPage({
         brand: itemBrand.trim(),
         category: itemCategory.trim(),
         unit: itemUnit.trim() || "Unit",
-        stockType: itemStockType,
         purchaseRate: Number(itemPurchaseRate),
+        itemRate: Number(itemRate),
         saleRate: Number(itemSaleRate),
       });
       setLines((current) =>
         current.map((line, index) =>
           index === createItemTarget
-            ? { ...line, itemCode: saved.code, itemLabel: "", labelOnly: false }
+            ? { ...line, itemCode: saved.code, itemLabel: "", labelOnly: false, rateSource: type === "PURCHASE" ? "PURCHASE_RATE" : "SALE_RATE", brand: saved.brand, category: saved.category }
             : line,
         ),
       );
@@ -309,8 +330,12 @@ export function ChallanPage({
                 itemLabel: line.itemLabel.trim(),
                 quantity: line.quantity,
                 rate: line.rate,
+                discountPercent: line.discountPercent,
+                discountAmount: line.discountAmount,
+                brand: line.brand,
+                category: line.category,
               }
-            : { itemCode: line.itemCode, quantity: line.quantity },
+            : { itemCode: line.itemCode, quantity: line.quantity, rate: lineRate(line), discountPercent: line.discountPercent, discountAmount: line.discountAmount, brand: line.brand, category: line.category },
       );
       const value = {
         number,
@@ -339,7 +364,7 @@ export function ChallanPage({
       setDate(today());
       setLocation("");
       setLines([
-        { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0 },
+        { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0, rateSource: type === "PURCHASE" ? "PURCHASE_RATE" : "SALE_RATE", discountPercent: 0, discountAmount: 0, brand: "", category: "" },
       ]);
       setEditorOpen(false);
     } catch (error) {
@@ -370,7 +395,7 @@ export function ChallanPage({
           {reservingNumber ? "Preparing…" : "New challan"}
         </Button>
       </div>
-      <Sheet
+      <Dialog
         open={editorOpen}
         onOpenChange={(open) => {
           setEditorOpen(open);
@@ -380,22 +405,21 @@ export function ChallanPage({
           }
         }}
       >
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(96vw,58rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
+        <DialogContent
+          className="flex max-h-[92vh] w-[min(98vw,88rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>
+          <DialogHeader className="border-b px-6 py-5">
+            <DialogTitle>
               {editingNumber
                 ? `Edit ${type.toLowerCase()} challan`
                 : `New ${type.toLowerCase()} challan`}
-            </SheetTitle>
-            <SheetDescription>
+            </DialogTitle>
+            <DialogDescription>
               Choose the party and location, then add catalog items or one-off
               labeled lines. Catalog items affect stock; labeled lines do not.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 pb-10">
             <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormSectionHeading title="Document details" />
               <Field label="Challan number" id="challan-number">
@@ -442,6 +466,7 @@ export function ChallanPage({
               />
               {lines.map((line, index) => {
                 const rate = lineRate(line);
+                const selectedItem = items.find((candidate) => candidate.code === line.itemCode);
                 return (
                   <div key={index} className="rounded-xl border bg-card p-4">
                     <div className="mb-4 flex items-center justify-between">
@@ -464,7 +489,7 @@ export function ChallanPage({
                         <Trash2 />
                       </Button>
                     </div>
-                    <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(7rem,1fr)]">
+                    <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(6,minmax(7rem,1fr))]">
                       <div className="flex flex-col gap-2">
                         {line.labelOnly ? (
                           <Field
@@ -490,21 +515,52 @@ export function ChallanPage({
                             id={`challan-item-${index}`}
                             required
                           >
-                            <FormSelect
+                            <SearchableItemSelect
                               id={`challan-item-${index}`}
                               value={line.itemCode}
                               onChange={(value) =>
                                 setLine(index, { itemCode: value })
                               }
+                              items={items}
                               placeholder="Select an item"
                               emptyHint="Create a catalog item here or use a one-off label."
-                              options={items.map((candidate) => ({
-                                value: candidate.code,
-                                label: `${candidate.code} — ${candidate.description}`,
-                              }))}
                             />
                           </Field>
                         )}
+                        {line.labelOnly ? (
+                          <div className="col-span-full grid min-w-0 grid-cols-2 gap-6">
+                            <PersistentSelectField
+                              label="Brand"
+                              id={`challan-brand-${index}`}
+                              value={line.brand}
+                              onChange={(value) => setLine(index, { brand: value })}
+                              options={itemAttributes.brands}
+                              onAdd={(value) => addItemAttribute("brand", value)}
+                              required={false}
+                            />
+                            <PersistentSelectField
+                              label="Category"
+                              id={`challan-category-${index}`}
+                              value={line.category}
+                              onChange={(value) => setLine(index, { category: value })}
+                              options={itemAttributes.categories}
+                              onAdd={(value) => addItemAttribute("category", value)}
+                              required={false}
+                            />
+                          </div>
+                        ) : selectedItem ? (
+                          <div className="grid gap-2 rounded-lg bg-muted/35 p-3 text-xs">
+                            <div className="grid grid-cols-2 gap-3">
+                              <p><span className="text-muted-foreground">Brand</span><span className="mt-1 block font-medium">{line.brand || "—"}</span></p>
+                              <p><span className="text-muted-foreground">Category</span><span className="mt-1 block font-medium">{line.category || "—"}</span></p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 border-t pt-2">
+                              <p><span className="text-muted-foreground">Item rate</span><span className="mt-1 block tabular-nums">{money(selectedItem.itemRate)}</span></p>
+                              <p><span className="text-muted-foreground">Purchase rate</span><span className="mt-1 block tabular-nums">{money(selectedItem.purchaseRate)}</span></p>
+                              <p><span className="text-muted-foreground">Sale rate</span><span className="mt-1 block tabular-nums">{money(selectedItem.saleRate)}</span></p>
+                            </div>
+                          </div>
+                        ) : null}
                         <div className="flex flex-wrap gap-2">
                           {!line.labelOnly && (
                             <Button
@@ -525,12 +581,15 @@ export function ChallanPage({
                               setLine(
                                 index,
                                 line.labelOnly
-                                  ? { labelOnly: false, itemLabel: "", rate: 0 }
+                                  ? { labelOnly: false, itemLabel: "", rate: 0, rateSource: type === "PURCHASE" ? "PURCHASE_RATE" : "SALE_RATE" }
                                   : {
                                       labelOnly: true,
                                       itemCode: "",
                                       itemLabel: "",
                                       rate: 0,
+                                      rateSource: "CUSTOM",
+                                      brand: "",
+                                      category: "",
                                     },
                               )
                             }
@@ -556,6 +615,9 @@ export function ChallanPage({
                           }
                         />
                       </Field>
+                      {!line.labelOnly && <Field label="Rate list" id={`challan-rate-list-${index}`}>
+                        <FormSelect id={`challan-rate-list-${index}`} value={line.rateSource} onChange={(value) => setLine(index, { rateSource: value as DraftLine["rateSource"] })} placeholder="Choose rate" options={[{ value: "ITEM_RATE", label: "Item rate" }, { value: "PURCHASE_RATE", label: "Purchase rate" }, { value: "SALE_RATE", label: "Sale rate" }, { value: "CUSTOM", label: "Custom rate" }]} />
+                      </Field>}
                       {line.labelOnly ? (
                         <Field label="Rate" id={`challan-rate-${index}`}>
                           <Input
@@ -572,7 +634,7 @@ export function ChallanPage({
                             }
                           />
                         </Field>
-                      ) : (
+                      ) : line.rateSource === "CUSTOM" ? <Field label="Rate" id={`challan-rate-${index}`}><Input id={`challan-rate-${index}`} type="number" min="0" step="any" value={line.rate} onChange={(event) => setLine(index, { rate: Number(event.target.value) })}/></Field> : (
                         <UiField>
                           <FieldLabel>Rate</FieldLabel>
                           <div className="flex h-9 items-center rounded-lg border bg-muted/40 px-3 font-medium tabular-nums">
@@ -580,10 +642,16 @@ export function ChallanPage({
                           </div>
                         </UiField>
                       )}
+                      <Field label="Discount %" id={`challan-discount-percent-${index}`}>
+                        <Input id={`challan-discount-percent-${index}`} type="number" min="0" max="100" step="any" value={line.discountPercent} onChange={(event) => setLine(index, { discountPercent: Number(event.target.value) })}/>
+                      </Field>
+                      <Field label="Discount amount" id={`challan-discount-amount-${index}`}>
+                        <Input id={`challan-discount-amount-${index}`} type="number" min="0" step="any" value={line.discountAmount} onChange={(event) => setLine(index, { discountAmount: Number(event.target.value) })}/>
+                      </Field>
                       <UiField>
-                        <FieldLabel>Amount</FieldLabel>
+                        <FieldLabel>Net amount</FieldLabel>
                         <div className="flex h-9 items-center rounded-lg border bg-muted/40 px-3 font-semibold tabular-nums">
-                          {money(rate * line.quantity)}
+                          {money(lineAmount(line))}
                         </div>
                       </UiField>
                     </FieldGroup>
@@ -592,7 +660,7 @@ export function ChallanPage({
               })}
             </section>
           </div>
-          <SheetFooter className="mt-0 flex-row flex-wrap items-center justify-between gap-3 border-t px-6 py-4 sm:flex-row">
+          <DialogFooter className="mt-0 flex-row flex-wrap items-center justify-between gap-3 border-t px-6 py-5 pb-6 sm:flex-row">
             <Button
               type="button"
               variant="outline"
@@ -605,6 +673,11 @@ export function ChallanPage({
                     labelOnly: false,
                     quantity: 1,
                     rate: 0,
+                    rateSource: type === "PURCHASE" ? "PURCHASE_RATE" : "SALE_RATE",
+                    discountPercent: 0,
+                    discountAmount: 0,
+                    brand: "",
+                    category: "",
                   },
                 ])
               }
@@ -642,9 +715,9 @@ export function ChallanPage({
                     : `Post ${type === "PURCHASE" ? "purchase" : "sale"}`}
               </Button>
             </div>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={createItemOpen} onOpenChange={setCreateItemOpen}>
         <DialogContent>
           <form onSubmit={(event) => void submitCreateItem(event)}>
@@ -669,12 +742,8 @@ export function ChallanPage({
                 />
               </Field>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Brand name" id="new-challan-item-brand">
-                  <Input id="new-challan-item-brand" maxLength={100} value={itemBrand} onChange={(event) => setItemBrand(event.target.value)} placeholder="Brand (optional)" />
-                </Field>
-                <Field label="Category" id="new-challan-item-category">
-                  <Input id="new-challan-item-category" maxLength={100} value={itemCategory} onChange={(event) => setItemCategory(event.target.value)} placeholder="Category (optional)" />
-                </Field>
+                <PersistentSelectField label="Brand name" id="new-challan-item-brand" value={itemBrand} onChange={setItemBrand} options={itemAttributes.brands} onAdd={(value) => addItemAttribute("brand", value)} />
+                <PersistentSelectField label="Category" id="new-challan-item-category" value={itemCategory} onChange={setItemCategory} options={itemAttributes.categories} onAdd={(value) => addItemAttribute("category", value)} />
               </div>
               <Field label="Unit" id="new-challan-item-unit">
                 <Input
@@ -685,23 +754,10 @@ export function ChallanPage({
                   placeholder="Unit"
                 />
               </Field>
-              <Field
-                label="Stock type"
-                id="new-challan-item-stock-type"
-                required
-              >
-                <FormSelect
-                  id="new-challan-item-stock-type"
-                  value={itemStockType}
-                  onChange={setItemStockType}
-                  options={stockTypes.map((stockType) => ({
-                    value: stockType.code,
-                    label: `${stockType.code} — ${stockType.description}`,
-                  }))}
-                  placeholder="Select stock type"
-                />
-              </Field>
               <div className="grid grid-cols-2 gap-4">
+                <Field label="Item rate" id="new-challan-item-rate">
+                  <Input id="new-challan-item-rate" type="number" min="0" step="any" value={itemRate} onChange={(event) => setItemRate(event.target.value)} />
+                </Field>
                 <Field
                   label="Purchase rate"
                   id="new-challan-item-purchase-rate"
@@ -744,7 +800,7 @@ export function ChallanPage({
               <Button
                 type="submit"
                 disabled={
-                  creatingItem || !itemDescription.trim() || !itemStockType
+                  creatingItem || !itemDescription.trim()
                 }
               >
                 {creatingItem ? "Creating…" : "Create and select item"}
@@ -847,6 +903,8 @@ export function ChallanPage({
               "#",
               "Item code",
               "Description",
+              "Brand",
+              "Category",
               "Qty / unit",
               "Rate",
               "Amount",
@@ -872,6 +930,8 @@ export function ChallanPage({
               "#",
               "Item code",
               "Description",
+              "Brand",
+              "Category",
               "Qty / unit",
               "Rate",
               "Amount",

@@ -99,6 +99,12 @@ contextBridge.exposeInMainWorld('office', Object.freeze({
   },
   items: {
     list: () => invoke('items:list'),
+    attributes: () => invoke('items:attributes'),
+    categories: () => invoke('items:categories'),
+    saveCategory: (value) => invoke('items:category:save', value),
+    addAttribute: (value) => invoke('items:attribute:add', value),
+    renameCategory: (oldName, newName) => invoke('items:category:rename', oldName, newName),
+    deleteCategory: (name) => invoke('items:category:delete', name),
     save: (value) => invoke('items:save', value),
     createForChallan: (value) => invoke('items:create-for-challan', value),
     remove: (code) => invoke('items:remove', code),
@@ -127,9 +133,6 @@ contextBridge.exposeInMainWorld('office', Object.freeze({
   stock: {
     locations: () => invoke('stock:locations'),
     quantity: (itemCode, location) => invoke('stock:quantity', { itemCode, location }),
-    types: () => invoke('stock:types'),
-    saveType: (value) => invoke('stock-types:save', value),
-    removeType: (code) => invoke('stock-types:remove', code),
     movements: () => invoke('stock:movements'),
     openings: () => invoke('stock:openings'),
     addOpening: (value) => invoke('stock:opening:add', value),

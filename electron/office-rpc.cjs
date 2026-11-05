@@ -6,9 +6,10 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024
 const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000
 const CHANGE_CHANNELS = new Set([
   'company:save', 'accounts:save', 'accounts:remove', 'items:save', 'items:create-for-challan', 'items:remove',
+  'items:attribute:add', 'items:category:save', 'items:category:rename', 'items:category:delete',
   'banks:save', 'banks:remove', 'challans:post', 'challans:update', 'challans:remove',
   'cheques:save', 'cheques:remove', 'vouchers:save', 'vouchers:remove',
-  'stock-types:save', 'stock-types:remove', 'stock:opening:add', 'stock:transfer',
+  'stock:opening:add', 'stock:transfer',
   'locations:save', 'locations:remove', 'users:save', 'users:remove', 'devices:create', 'devices:revoke', 'security:configure-admin-tools-password',
 ])
 

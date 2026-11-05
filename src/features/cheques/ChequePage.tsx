@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FieldGroup } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ConfirmActionDialog } from '@/components/feedback/ConfirmActionDialog'
 import type { Account, Bank, Cheque } from '@/types'
 import { DatePicker } from '@/components/forms/DatePicker'
@@ -37,7 +37,7 @@ export function ChequePage({ rows, banks, accounts, onSave, onDelete }: { rows: 
     finally { setSaving(false) }
   }
   return <section className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-semibold tracking-tight">Cheque Detail</h1><p className="mt-1 text-sm text-muted-foreground">Record cheque information, bank, party, and status.</p></div><Button disabled={reservingNumber || saving} onClick={() => void beginCreate()}><Plus data-icon="inline-start" />{reservingNumber ? 'Preparing…' : 'New cheque'}</Button></div>
-    <Sheet open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) { setEditing(false); setBaseline(null) } }}><SheetContent side="right" className="flex data-[side=right]:w-[min(92vw,38rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"><SheetHeader className="border-b px-6 py-5"><SheetTitle>{editing ? 'Edit cheque' : 'New cheque record'}</SheetTitle><SheetDescription>Record the check number, bank, party, amount, and current status.</SheetDescription></SheetHeader>
+    <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) { setEditing(false); setBaseline(null) } }}><DialogContent className="flex max-h-[90vh] w-[min(92vw,48rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"><DialogHeader className="border-b px-6 py-5"><DialogTitle>{editing ? 'Edit cheque' : 'New cheque record'}</DialogTitle><DialogDescription>Record the check number, bank, party, amount, and current status.</DialogDescription></DialogHeader>
       <FieldGroup className="grid min-h-0 flex-1 content-start grid-cols-1 gap-x-5 gap-y-5 overflow-y-auto p-6 sm:grid-cols-2">
         <FormSectionHeading title="Cheque details" />
         <Field label="Cheque ID" id="cheque-id"><Input id="cheque-id" value={number} disabled /></Field>
@@ -55,8 +55,8 @@ export function ChequePage({ rows, banks, accounts, onSave, onDelete }: { rows: 
           <p className="text-sm text-muted-foreground sm:col-span-2">Clearing posts a balanced entry on the cleared date. Payment debits the party; receipt debits the bank account.</p>
         </>}
       </FieldGroup>
-      <SheetFooter className="mt-0 border-t px-6 py-4"><Button onClick={() => void submit()} disabled={saving || !banks.length || !status}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save cheque'}</Button></SheetFooter>
-    </SheetContent></Sheet>
+      <DialogFooter className="mt-0 border-t px-6 py-5 pb-6"><Button onClick={() => void submit()} disabled={saving || !banks.length || !status}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save cheque'}</Button></DialogFooter>
+    </DialogContent></Dialog>
     <Card><CardHeader><CardTitle className="text-base">Saved cheques</CardTitle><CardDescription>{rows.length} record{rows.length === 1 ? '' : 's'}</CardDescription></CardHeader><CardContent><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Cheque ID</TableHead><TableHead>Check Number</TableHead><TableHead>Date</TableHead><TableHead>Bank</TableHead><TableHead>Party</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.number}><TableCell className="font-medium">{row.number}</TableCell><TableCell>{row.checkNumber || '—'}</TableCell><TableCell>{row.date}</TableCell><TableCell>{banks.find((bank) => bank.code === row.bankCode)?.name ?? row.bankCode}</TableCell><TableCell>{row.party}</TableCell><TableCell><Badge variant="secondary">{{ PENDING: "Waiting to clear", CLEARED: "Cleared", RETURNED: "Returned", CANCELLED: "Cancelled" }[row.status] ?? row.status}</Badge></TableCell><TableCell className="text-right tabular-nums">{money(row.amount)}</TableCell><TableCell className="whitespace-nowrap"><Button variant="ghost" size="sm" onClick={() => beginEdit(row)}>Edit</Button><Button variant="ghost" size="sm" onClick={() => setDeleteNumber(row.number)}>Delete</Button></TableCell></TableRow>)}{rows.length === 0 && <TableRow><TableCell colSpan={8} className="h-20 text-center text-muted-foreground">No cheques recorded yet.</TableCell></TableRow>}</TableBody></Table></div></CardContent></Card>
     <ConfirmActionDialog open={deleteNumber !== null} onOpenChange={(open) => { if (!open) setDeleteNumber(null) }} title={`Delete cheque ${deleteNumber ?? ''}?`} description="This permanently deletes the cheque and its status history. The deletion remains in the audit log." confirmLabel="Delete cheque" onConfirm={() => { const target = deleteNumber; if (target) void onDelete(target).then(() => toast.success('Cheque deleted')).catch((error) => toast.error(error instanceof Error ? error.message : 'Could not delete cheque')).finally(() => setDeleteNumber(null)) }} />
   </section>

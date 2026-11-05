@@ -188,9 +188,8 @@ export function ManualPage() {
               forms. “Cash in Hand” is offered as a cash account.
             </li>
             <li>
-              In <strong>Stock Types</strong>, add any categories you need. Then
-              open <strong>Items</strong> and add each item with its
-              description, stock type, purchase rate, and sale rate.
+              Open <strong>Items</strong> and add each item with its brand,
+              category, purchase rate, and sale rate.
             </li>
             <li>
               To enter starting inventory, choose <strong>Add item</strong> and

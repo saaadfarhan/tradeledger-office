@@ -61,6 +61,7 @@ test('shared office writes and reads the same host SQLite database', async (t) =
   assert.equal(saved.status, 200)
 
   const listed = await call(address.port, { channel: 'accounts:list', token })
-  assert.deepEqual(listed.body.value, [{ code: 'CASH', description: 'Cash', parentCode: null, openingBalance: 0 }])
+  assert.ok(listed.body.value.some((account) => account.code === 'CASH' && account.description === 'Cash'))
+  assert.ok(listed.body.value.some((account) => account.code === 'SYS-ASSET' && account.description === 'Assets'))
   assert.deepEqual(store.listAccounts(), listed.body.value)
 })

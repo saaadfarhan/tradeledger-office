@@ -21,13 +21,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DatePicker } from "@/components/forms/DatePicker";
 import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import type { Account, CompanyProfile, Voucher } from "@/types";
@@ -235,22 +235,21 @@ export function VoucherEntryPage({
           New {type === "PAYMENT" ? "entry" : "voucher"}
         </Button>
       </div>
-      <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(96vw,54rem)] flex-col gap-0 overflow-y-auto p-0 data-[side=right]:sm:max-w-none"
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent
+          className="flex max-h-[92vh] w-[min(96vw,64rem)] flex-col gap-0 overflow-y-auto p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>
+          <DialogHeader className="border-b px-6 py-5">
+            <DialogTitle>
               {editing
                 ? `Edit ${number}`
                 : `New ${type === "PAYMENT" ? (paymentType ? paymentType.toLowerCase() : "payment / receipt entry") : type.toLowerCase()}`}
-            </SheetTitle>
-            <SheetDescription>
+            </DialogTitle>
+            <DialogDescription>
               Every posting must have equal debit and credit totals. Posting
               does not automatically account for purchase or sale challans.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <Card className="m-4 border-0 shadow-none">
             <CardContent className="pt-5">
               <form
@@ -504,7 +503,7 @@ export function VoucherEntryPage({
                     </div>
                   </div>
                 )}
-                <SheetFooter className="flex-row justify-end gap-2 border-t pt-4">
+                <DialogFooter className="flex-row justify-end gap-2 border-t pt-4">
                   <Button
                     type="button"
                     variant="outline"
@@ -526,12 +525,12 @@ export function VoucherEntryPage({
                         ? "Update voucher"
                         : "Post voucher"}
                   </Button>
-                </SheetFooter>
+                </DialogFooter>
               </form>
             </CardContent>
           </Card>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Saved entries</CardTitle>

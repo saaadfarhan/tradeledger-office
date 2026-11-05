@@ -3,8 +3,8 @@ export type Page =
   | "company"
   | "accounts"
   | "items"
+  | "categories"
   | "banks"
-  | "stockTypes"
   | "locations"
   | "opening"
   | "transfer"
@@ -24,12 +24,12 @@ export type Page =
   | "keybindings";
 
 export const pageNames: Record<Page, string> = {
-  home: "Overview",
+  home: "Home",
   company: "Company Profile",
   accounts: "Chart of Accounts",
   items: "Items",
+  categories: "Categories",
   banks: "Banks",
-  stockTypes: "Stock Types",
   locations: "Locations",
   opening: "Item Opening Balances",
   transfer: "Transfer",
@@ -59,7 +59,6 @@ export const reportGroups = [
       "Stock Report Date Wise",
       "Stock Report Item Wise",
       "Item Ledger",
-      "Type Wise Item Report",
     ],
   },
   {
@@ -100,8 +99,8 @@ export const permissionPages: Page[] = [
   "home",
   "accounts",
   "items",
+  "categories",
   "banks",
-  "stockTypes",
   "locations",
   "opening",
   "transfer",

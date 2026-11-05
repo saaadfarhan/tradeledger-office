@@ -39,20 +39,19 @@ function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS accounts (
       code TEXT PRIMARY KEY, description TEXT NOT NULL, parent_code TEXT,
       opening_balance NUMERIC NOT NULL DEFAULT 0, opening_balance_side TEXT NOT NULL DEFAULT 'DEBIT',
-      account_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+      account_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED', phone_no TEXT NOT NULL DEFAULT '',
+      ntn_number TEXT NOT NULL DEFAULT '', mobile_no TEXT NOT NULL DEFAULT '', gst_no TEXT NOT NULL DEFAULT '',
+      address TEXT NOT NULL DEFAULT '', party_type TEXT NOT NULL DEFAULT '', cash_bank TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (parent_code) REFERENCES accounts(code)
     );
     CREATE TABLE IF NOT EXISTS items (
       code TEXT PRIMARY KEY, description TEXT NOT NULL, unit TEXT NOT NULL,
-      sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL, stock_type TEXT NOT NULL,
+      item_rate NUMERIC NOT NULL DEFAULT 0, sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL,
       brand TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT ''
     );
-    CREATE TABLE IF NOT EXISTS stock_types (
-      code TEXT PRIMARY KEY, description TEXT NOT NULL
-    );
+    CREATE TABLE IF NOT EXISTS item_brands (name TEXT PRIMARY KEY COLLATE NOCASE);
+    CREATE TABLE IF NOT EXISTS item_categories (name TEXT PRIMARY KEY COLLATE NOCASE, description TEXT NOT NULL DEFAULT '');
     CREATE TABLE IF NOT EXISTS locations (name TEXT PRIMARY KEY COLLATE NOCASE);
-    INSERT OR IGNORE INTO stock_types(code, description) VALUES ('REG', 'Regular');
-    INSERT OR IGNORE INTO stock_types(code, description) VALUES ('SER', 'Service');
     CREATE TABLE IF NOT EXISTS banks (
       code TEXT PRIMARY KEY, name TEXT NOT NULL, account_number TEXT,
       opening_balance NUMERIC NOT NULL DEFAULT 0, address TEXT, phone TEXT,
@@ -80,6 +79,8 @@ function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS challan_lines (
       challan_number TEXT NOT NULL, line_number INTEGER NOT NULL, item_code TEXT, item_label TEXT,
       quantity NUMERIC NOT NULL, rate NUMERIC NOT NULL, amount NUMERIC NOT NULL,
+      discount_percent NUMERIC NOT NULL DEFAULT 0, discount_amount NUMERIC NOT NULL DEFAULT 0,
+      brand TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (challan_number, line_number),
       CHECK (item_code IS NOT NULL OR item_label IS NOT NULL),
       FOREIGN KEY (challan_number) REFERENCES challans(number),
@@ -119,6 +120,23 @@ function initializeSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS id_sequences (entity TEXT PRIMARY KEY, last_number INTEGER NOT NULL);
   `)
+  // Remove the legacy Stock Type field/table from existing databases too.
+  const legacyItemColumns = db.prepare('PRAGMA table_info(items)').all()
+  if (legacyItemColumns.some((column) => column.name === 'stock_type')) {
+    db.exec('ALTER TABLE items DROP COLUMN stock_type')
+  }
+  db.exec('DROP TABLE IF EXISTS stock_types')
+  for (const table of ['users', 'user_permission_presets']) {
+    const rows = db.prepare(`SELECT rowid, permissions FROM ${table}`).all()
+    const update = db.prepare(`UPDATE ${table} SET permissions=? WHERE rowid=?`)
+    for (const row of rows) {
+      const permissions = String(row.permissions || '').split('\u001f').filter((permission) => permission && permission !== 'Stock Types')
+      if (permissions.length !== String(row.permissions || '').split('\u001f').filter(Boolean).length) {
+        update.run(permissions.join('\u001f'), row.rowid)
+      }
+    }
+  }
+  db.prepare("DELETE FROM audit_events WHERE action LIKE 'STOCK_TYPE_%'").run()
   const userTableColumns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
   if (!userTableColumns.includes('is_admin')) {
     db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0')
@@ -131,7 +149,7 @@ function initializeSchema(db) {
       ['Sales operator', 'Enter sale challans and review related records.', ['Chart of Accounts', 'Items', 'Sale Challans', 'Search Payment', 'Reports']],
       ['Purchase operator', 'Enter purchase challans and review related records.', ['Chart of Accounts', 'Items', 'Purchase Challans', 'Search Payment', 'Reports']],
       ['Cashier / payments', 'Record payments, receipts, and cheque details.', ['Chart of Accounts', 'Banks', 'Cheque Detail', 'Payment / Receipt', 'Search Payment', 'Reports']],
-      ['Inventory operator', 'Maintain stock setup, opening stock, and transfers.', ['Items', 'Stock Types', 'Locations', 'Item Opening Balances', 'Transfer', 'Reports']],
+      ['Inventory operator', 'Maintain stock setup, opening stock, and transfers.', ['Items', 'Categories', 'Locations', 'Item Opening Balances', 'Transfer', 'Reports']],
     ]) insertPreset.run(preset[0], preset[1], preset[2].join('\u001f'))
   }
 
@@ -149,9 +167,25 @@ function initializeSchema(db) {
   const accountColumns = db.prepare('PRAGMA table_info(accounts)').all().map((column) => column.name)
   if (!accountColumns.includes('opening_balance_side')) db.exec("ALTER TABLE accounts ADD COLUMN opening_balance_side TEXT NOT NULL DEFAULT 'DEBIT'")
   if (!accountColumns.includes('account_type')) db.exec("ALTER TABLE accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED'")
+  for (const [column, definition] of [['phone_no', "TEXT NOT NULL DEFAULT ''"], ['ntn_number', "TEXT NOT NULL DEFAULT ''"], ['mobile_no', "TEXT NOT NULL DEFAULT ''"], ['gst_no', "TEXT NOT NULL DEFAULT ''"], ['address', "TEXT NOT NULL DEFAULT ''"], ['party_type', "TEXT NOT NULL DEFAULT ''"], ['cash_bank', "TEXT NOT NULL DEFAULT ''"]]) {
+    if (!accountColumns.includes(column)) db.exec(`ALTER TABLE accounts ADD COLUMN ${column} ${definition}`)
+  }
+  db.exec(`INSERT OR IGNORE INTO accounts(code, description, account_type) VALUES
+    ('SYS-ASSET', 'Assets', 'ASSET'), ('SYS-LIAB', 'Liabilities', 'LIABILITY'),
+    ('SYS-REV', 'Revenue', 'INCOME'), ('SYS-PUR', 'Purchase Goods', 'EXPENSE'),
+    ('SYS-SALES', 'Sales', 'INCOME'), ('SYS-EXP', 'Expenses', 'EXPENSE')`)
   const itemColumns = db.prepare('PRAGMA table_info(items)').all().map((column) => column.name)
+  if (!itemColumns.includes('item_rate')) {
+    db.exec('ALTER TABLE items ADD COLUMN item_rate NUMERIC NOT NULL DEFAULT 0')
+    db.exec('UPDATE items SET item_rate=sale_rate')
+  }
+  const categoryColumns = db.prepare('PRAGMA table_info(item_categories)').all().map((column) => column.name)
+  if (!categoryColumns.includes('description')) db.exec("ALTER TABLE item_categories ADD COLUMN description TEXT NOT NULL DEFAULT ''")
   if (!itemColumns.includes('brand')) db.exec("ALTER TABLE items ADD COLUMN brand TEXT NOT NULL DEFAULT ''")
   if (!itemColumns.includes('category')) db.exec("ALTER TABLE items ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+  db.exec("UPDATE items SET brand='Unbranded' WHERE trim(brand)=''; UPDATE items SET category='Uncategorized' WHERE trim(category)='';")
+  db.exec(`INSERT OR IGNORE INTO item_brands(name) SELECT DISTINCT trim(brand) FROM items WHERE trim(brand)<>'';
+    INSERT OR IGNORE INTO item_categories(name) SELECT DISTINCT trim(category) FROM items WHERE trim(category)<>'';`)
   const challanLineColumns = db.prepare('PRAGMA table_info(challan_lines)').all().map((column) => column.name)
   if (!challanLineColumns.includes('item_label')) {
     db.pragma('foreign_keys = OFF')
@@ -168,6 +202,11 @@ function initializeSchema(db) {
     })()
     db.pragma('foreign_keys = ON')
   }
+  const currentChallanLineColumns = db.prepare('PRAGMA table_info(challan_lines)').all().map((column) => column.name)
+  if (!currentChallanLineColumns.includes('discount_percent')) db.exec('ALTER TABLE challan_lines ADD COLUMN discount_percent NUMERIC NOT NULL DEFAULT 0')
+  if (!currentChallanLineColumns.includes('discount_amount')) db.exec('ALTER TABLE challan_lines ADD COLUMN discount_amount NUMERIC NOT NULL DEFAULT 0')
+  if (!currentChallanLineColumns.includes('brand')) db.exec("ALTER TABLE challan_lines ADD COLUMN brand TEXT NOT NULL DEFAULT ''")
+  if (!currentChallanLineColumns.includes('category')) db.exec("ALTER TABLE challan_lines ADD COLUMN category TEXT NOT NULL DEFAULT ''")
   db.exec(`INSERT OR IGNORE INTO locations(name) SELECT DISTINCT trim(location) FROM stock_movements WHERE trim(location)<>'';
     INSERT OR IGNORE INTO locations(name) SELECT DISTINCT trim(location) FROM challans WHERE trim(location)<>'';
     INSERT OR IGNORE INTO locations(name) SELECT DISTINCT trim(from_location) FROM stock_transfers WHERE trim(from_location)<>'';
@@ -177,7 +216,8 @@ function initializeSchema(db) {
 function createOfficeStore(db) {
   const findAccount = db.prepare(`SELECT code, description, parent_code AS parentCode,
     opening_balance AS openingBalance, opening_balance_side AS openingBalanceSide,
-    account_type AS accountType FROM accounts WHERE code = ?`)
+    account_type AS accountType, phone_no AS phoneNo, ntn_number AS ntnNumber, mobile_no AS mobileNo,
+    gst_no AS gstNo, address, party_type AS partyType, cash_bank AS cashBank FROM accounts WHERE code = ?`)
   const audit = db.prepare('INSERT INTO audit_events(event_time, username, action, details) VALUES (?, ?, ?, ?)')
   const now = () => new Date().toISOString()
   let currentUser = 'system'
@@ -196,7 +236,7 @@ function createOfficeStore(db) {
     for (const [key, kind = 'text'] of fields) {
       const normalize = (value) => kind === 'number' ? Number(value ?? 0)
         : kind === 'nullable' ? (value || null)
-        : kind === 'lines' ? JSON.stringify((value || []).map((line) => [line.itemCode || line.accountCode || line.itemLabel || '', Number(line.quantity ?? line.debit ?? 0), Number(line.credit ?? 0), line.itemCode ? 0 : Number(line.rate ?? 0)]))
+        : kind === 'lines' ? JSON.stringify((value || []).map((line) => [line.itemCode || line.accountCode || line.itemLabel || '', Number(line.quantity ?? line.debit ?? 0), Number(line.credit ?? 0), Number(line.rate ?? 0), Number(line.discountPercent ?? 0), Number(line.discountAmount ?? 0), line.brand ?? '', line.category ?? '']))
             : (value ?? '')
       const same = (left, right) => normalize(left) === normalize(right)
       const original = baseline[key]
@@ -234,11 +274,11 @@ function createOfficeStore(db) {
 
   function requireAdministrator() {
     const actor = listUsers().find((user) => user.username === currentUser)
-    if (!actor?.isAdministrator) throw new Error('Only an administrator can manage user accounts')
+    if (!actor?.isAdministrator && !actor?.permissions.includes('User Rights')) throw new Error('Only an administrator can manage user accounts')
   }
 
   function listPermissionPresets() {
-    return db.prepare('SELECT name, description, permissions FROM user_permission_presets ORDER BY name').all().map((row) => ({ name: row.name, description: row.description, permissions: row.permissions ? row.permissions.split('\u001f').filter(Boolean) : [] }))
+    return db.prepare('SELECT name, description, permissions FROM user_permission_presets ORDER BY name').all().map((row) => ({ name: row.name, description: row.description, permissions: normalizePermissions(row.permissions ? row.permissions.split('\u001f').filter(Boolean) : []) }))
   }
 
   function savePermissionPreset(input) {
@@ -272,12 +312,18 @@ function createOfficeStore(db) {
     const username = required(input.username, 'User name')
     if (username.length > 80) throw new Error('User name must be 80 characters or fewer')
     const macAddress = normalizeMacAddress(input.macAddress)
-    const existing = db.prepare('SELECT password_hash FROM users WHERE username=?').get(username)
+    const existing = db.prepare('SELECT password_hash, permissions FROM users WHERE username=?').get(username)
     const password = String(input.password || '')
     if (!existing && password.length < 8) throw new Error('New user passwords must be at least 8 characters')
     if (password && password.length < 8) throw new Error('Passwords must be at least 8 characters')
-    const permissions = normalizePermissions((input.permissions || []).map(String))
+    const requestedPermissions = (input.permissions || []).map(String).filter((permission) => !['Company Profile', 'Database Tools'].includes(permission))
+    const permissions = normalizePermissions(requestedPermissions)
     if (permissions.length <= 2) throw new Error('Select at least one page permission')
+    if (existing?.permissions?.split('\u001f').includes('User Rights') && !permissions.includes('User Rights')) {
+      const anotherRightsHolder = db.prepare('SELECT permissions FROM users WHERE username<>?').all(username)
+        .some((user) => user.permissions.split('\u001f').includes('User Rights'))
+      if (!anotherRightsHolder) throw new Error('At least one user must retain User Rights')
+    }
     const hash = password ? hashPassword(password) : existing?.password_hash
     db.prepare('INSERT INTO users(username, password_hash, permissions, mac_address) VALUES (?, ?, ?, ?) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, permissions=excluded.permissions, mac_address=excluded.mac_address')
       .run(username, hash, permissions.join('\u001f'), macAddress)
@@ -349,7 +395,7 @@ function createOfficeStore(db) {
     const username = required(input.username, 'User name')
     const password = String(input.password || '')
     if (password.length < 8) throw new Error('Password must be at least 8 characters')
-    const permissions = ['Overview', 'Company Profile', 'Chart of Accounts', 'Items', 'Banks', 'Stock Types', 'Locations', 'Item Opening Balances', 'Transfer', 'Cheque Detail', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Search Payment', 'Payment / Receipt', 'Reports', 'User Rights', 'Audit Log', 'Database Tools', 'Manual']
+    const permissions = ['Overview', 'Company Profile', 'Chart of Accounts', 'Items', 'Categories', 'Banks', 'Locations', 'Item Opening Balances', 'Transfer', 'Cheque Detail', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Search Payment', 'Payment / Receipt', 'Reports', 'User Rights', 'Audit Log', 'Database Tools', 'Manual']
     db.prepare('INSERT INTO users(username, password_hash, permissions, is_admin) VALUES (?, ?, ?, 1)').run(username, hashPassword(password), permissions.join('\u001f'))
     currentUser = username
     recordAudit('INITIAL_ADMIN_CREATED', username)
@@ -378,7 +424,7 @@ function createOfficeStore(db) {
 
   function exportData() {
     recordAudit('DATABASE_EXPORT', 'Business data JSON export')
-    const tables = ['company_profile', 'accounts', 'items', 'stock_types', 'locations', 'banks', 'cheques', 'cheque_status_history', 'challans', 'challan_lines', 'vouchers', 'voucher_lines', 'stock_movements', 'stock_transfers', 'audit_events']
+    const tables = ['company_profile', 'accounts', 'items', 'item_brands', 'item_categories', 'locations', 'banks', 'cheques', 'cheque_status_history', 'challans', 'challan_lines', 'vouchers', 'voucher_lines', 'stock_movements', 'stock_transfers', 'audit_events']
     const data = Object.fromEntries(tables.map((table) => [table, db.prepare(`SELECT * FROM ${table}`).all()]))
     return { format: 'purchase-sale-office-data', version: 1, exportedAt: now(), data }
   }
@@ -469,7 +515,8 @@ function createOfficeStore(db) {
   function listAccounts() {
     return db.prepare(`SELECT code, description, parent_code AS parentCode,
       opening_balance AS openingBalance, opening_balance_side AS openingBalanceSide,
-      account_type AS accountType FROM accounts ORDER BY code`).all()
+      account_type AS accountType, phone_no AS phoneNo, ntn_number AS ntnNumber, mobile_no AS mobileNo,
+      gst_no AS gstNo, address, party_type AS partyType, cash_bank AS cashBank FROM accounts ORDER BY code`).all()
   }
 
   function saveAccount(input) {
@@ -481,14 +528,19 @@ function createOfficeStore(db) {
       openingBalance: nonNegative(input.openingBalance ?? 0, 'Opening balance'),
       openingBalanceSide: String(input.openingBalanceSide || 'DEBIT').toUpperCase(),
       accountType: String(input.accountType || 'UNCLASSIFIED').toUpperCase(),
+      phoneNo: String(input.phoneNo || ''), ntnNumber: String(input.ntnNumber || ''), mobileNo: String(input.mobileNo || ''),
+      gstNo: String(input.gstNo || ''), address: String(input.address || ''),
+      partyType: String(input.partyType || '').toUpperCase(), cashBank: String(input.cashBank || '').toUpperCase(),
     }
     const merged = input.__baseline
-      ? mergeConcurrentFields(exists, input.__baseline, proposed, [['description'], ['parentCode', 'nullable'], ['openingBalance', 'number'], ['openingBalanceSide'], ['accountType']], 'account')
+      ? mergeConcurrentFields(exists, input.__baseline, proposed, [['description'], ['parentCode', 'nullable'], ['openingBalance', 'number'], ['openingBalanceSide'], ['accountType'], ['phoneNo'], ['ntnNumber'], ['mobileNo'], ['gstNo'], ['address'], ['partyType'], ['cashBank']], 'account')
       : proposed
     const description = required(merged.description, 'Description')
     const parentCode = merged.parentCode ? String(merged.parentCode).trim() : null
     if (!['DEBIT', 'CREDIT'].includes(merged.openingBalanceSide)) throw new Error('Opening balance side must be debit or credit')
     if (!['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE', 'UNCLASSIFIED'].includes(merged.accountType)) throw new Error('Account type is not supported')
+    if (!['', 'SUPPLIER', 'BANK ACCOUNT'].includes(merged.partyType)) throw new Error('Account Type is not supported')
+    if (!['', 'CASH', 'BANK'].includes(merged.cashBank)) throw new Error('Cash / Bank value is not supported')
     if (parentCode === code) throw new Error('An account cannot be its own parent')
     if (parentCode && !findAccount.get(parentCode)) throw new Error('Parent account does not exist')
     let ancestorCode = parentCode
@@ -498,10 +550,10 @@ function createOfficeStore(db) {
     }
     const balance = nonNegative(merged.openingBalance, 'Opening balance')
     if (exists) {
-      db.prepare('UPDATE accounts SET description = ?, parent_code = ?, opening_balance = ?, opening_balance_side = ?, account_type = ? WHERE code = ?').run(description, parentCode, balance, merged.openingBalanceSide, merged.accountType, code)
+      db.prepare('UPDATE accounts SET description=?, parent_code=?, opening_balance=?, opening_balance_side=?, account_type=?, phone_no=?, ntn_number=?, mobile_no=?, gst_no=?, address=?, party_type=?, cash_bank=? WHERE code=?').run(description, parentCode, balance, merged.openingBalanceSide, merged.accountType, merged.phoneNo, merged.ntnNumber, merged.mobileNo, merged.gstNo, merged.address, merged.partyType, merged.cashBank, code)
       recordAudit('ACCOUNT_UPDATE', code)
     } else {
-      db.prepare('INSERT INTO accounts(code, description, parent_code, opening_balance, opening_balance_side, account_type) VALUES (?, ?, ?, ?, ?, ?)').run(code, description, parentCode, balance, merged.openingBalanceSide, merged.accountType)
+      db.prepare('INSERT INTO accounts(code, description, parent_code, opening_balance, opening_balance_side, account_type, phone_no, ntn_number, mobile_no, gst_no, address, party_type, cash_bank) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(code, description, parentCode, balance, merged.openingBalanceSide, merged.accountType, merged.phoneNo, merged.ntnNumber, merged.mobileNo, merged.gstNo, merged.address, merged.partyType, merged.cashBank)
       recordAudit('ACCOUNT_SAVE', code)
     }
     return findAccount.get(code)
@@ -519,36 +571,103 @@ function createOfficeStore(db) {
   }
 
   function listItems() {
-    return db.prepare(`SELECT i.code, i.description, i.unit, i.sale_rate AS saleRate,
-      i.purchase_rate AS purchaseRate, i.stock_type AS stockType,
+    return db.prepare(`SELECT i.code, i.description, i.unit, i.item_rate AS itemRate, i.sale_rate AS saleRate,
+      i.purchase_rate AS purchaseRate,
       i.brand, i.category,
       COALESCE((SELECT SUM(m.quantity) FROM stock_movements m WHERE m.item_code=i.code), 0) AS stockQuantity
       FROM items i ORDER BY i.code`).all()
+  }
+
+  function listItemAttributes() {
+    return {
+      brands: db.prepare('SELECT name FROM item_brands ORDER BY name COLLATE NOCASE').all().map((row) => row.name),
+      categories: db.prepare('SELECT name FROM item_categories ORDER BY name COLLATE NOCASE').all().map((row) => row.name),
+    }
+  }
+
+  function listItemCategories() {
+    return db.prepare('SELECT rowid AS id, name, description FROM item_categories ORDER BY name COLLATE NOCASE').all()
+  }
+
+  function saveItemCategory(input) {
+    const name = required(input?.name, 'Category').trim()
+    const description = String(input?.description || '').trim()
+    const originalName = String(input?.originalName || '').trim()
+    if (name.length > 100) throw new Error('Category names must be 100 characters or fewer')
+    if (description.length > 500) throw new Error('Category descriptions must be 500 characters or fewer')
+    if (originalName && originalName.toLowerCase() !== name.toLowerCase()) {
+      if (!db.prepare('SELECT 1 FROM item_categories WHERE name=?').get(originalName)) throw new Error('Category does not exist')
+      db.transaction(() => {
+        db.prepare('INSERT OR IGNORE INTO item_categories(name, description) VALUES (?, ?)').run(name, description)
+        db.prepare('UPDATE items SET category=? WHERE category=?').run(name, originalName)
+        db.prepare('DELETE FROM item_categories WHERE name=?').run(originalName)
+        db.prepare('UPDATE item_categories SET description=? WHERE name=?').run(description, name)
+      })()
+    } else {
+      db.prepare('INSERT INTO item_categories(name, description) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET description=excluded.description').run(name, description)
+    }
+    recordAudit(originalName ? 'ITEM_CATEGORY_UPDATE' : 'ITEM_CATEGORY_SAVE', name)
+    return listItemCategories()
+  }
+
+  function saveItemAttribute(input) {
+    const kind = String(input?.kind || '').toLowerCase()
+    const value = required(input?.value, kind === 'brand' ? 'Brand' : 'Category').trim()
+    if (value.length > 100) throw new Error('Brand and category names must be 100 characters or fewer')
+    if (!['brand', 'category'].includes(kind)) throw new Error('Choose a brand or category field')
+    const table = kind === 'brand' ? 'item_brands' : 'item_categories'
+    const result = db.prepare(`INSERT OR IGNORE INTO ${table}(name) VALUES (?)`).run(value)
+    if (result.changes) recordAudit(kind === 'brand' ? 'ITEM_BRAND_SAVE' : 'ITEM_CATEGORY_SAVE', value)
+    return listItemAttributes()
+  }
+
+  function renameItemCategory(oldName, newName) {
+    const oldValue = required(oldName, 'Category').trim()
+    const nextValue = required(newName, 'Category').trim()
+    if (oldValue.toLowerCase() === nextValue.toLowerCase()) return listItemAttributes()
+    if (nextValue.length > 100) throw new Error('Category names must be 100 characters or fewer')
+    if (!db.prepare('SELECT 1 FROM item_categories WHERE name=?').get(oldValue)) throw new Error('Category does not exist')
+    db.transaction(() => {
+      db.prepare('INSERT OR IGNORE INTO item_categories(name) VALUES (?)').run(nextValue)
+      db.prepare('UPDATE items SET category=? WHERE category=?').run(nextValue, oldValue)
+      db.prepare('DELETE FROM item_categories WHERE name=?').run(oldValue)
+    })()
+    recordAudit('ITEM_CATEGORY_RENAME', `${oldValue} → ${nextValue}`)
+    return listItemAttributes()
+  }
+
+  function deleteItemCategory(name) {
+    const value = required(name, 'Category').trim()
+    if (db.prepare('SELECT 1 FROM items WHERE category=? LIMIT 1').get(value)) throw new Error('Move items to another category before deleting this category')
+    const result = db.prepare('DELETE FROM item_categories WHERE name=?').run(value)
+    if (!result.changes) throw new Error('Category does not exist')
+    recordAudit('ITEM_CATEGORY_DELETE', value)
+    return listItemAttributes()
   }
 
   function saveItem(input) {
     return db.transaction(() => {
       const item = {
         code: required(input.code, 'Item code'), description: required(input.description, 'Description'),
-        unit: String(input.unit || 'Unit').trim(), saleRate: nonNegative(input.saleRate, 'Sale rate'),
-        purchaseRate: nonNegative(input.purchaseRate, 'Purchase rate'), stockType: required(input.stockType, 'Stock type'),
-        brand: String(input.brand || '').trim(), category: String(input.category || '').trim(),
+        unit: String(input.unit || 'Unit').trim(), itemRate: nonNegative(input.itemRate ?? input.saleRate ?? 0, 'Item rate'), saleRate: nonNegative(input.saleRate, 'Sale rate'),
+        purchaseRate: nonNegative(input.purchaseRate, 'Purchase rate'),
+        brand: String(input.brand || 'Unbranded').trim(), category: String(input.category || 'Uncategorized').trim(),
       }
+      if (item.brand.length > 100 || item.category.length > 100) throw new Error('Brand and category names must be 100 characters or fewer')
       if (!item.unit) item.unit = 'Unit'
-      if (!db.prepare('SELECT 1 FROM stock_types WHERE code = ?').get(item.stockType)) throw new Error('Selected stock type does not exist')
       const quantityToAdd = input.quantityToAdd == null || input.quantityToAdd === '' ? 0 : nonNegative(input.quantityToAdd, 'Quantity to add')
       const location = quantityToAdd > 0 ? knownLocation(input.location) : ''
-      const exists = db.prepare('SELECT code, description, unit, sale_rate AS saleRate, purchase_rate AS purchaseRate, stock_type AS stockType, brand, category FROM items WHERE code = ?').get(item.code)
+      const exists = db.prepare('SELECT code, description, unit, item_rate AS itemRate, sale_rate AS saleRate, purchase_rate AS purchaseRate, brand, category FROM items WHERE code = ?').get(item.code)
       const merged = input.__baseline
-        ? mergeConcurrentFields(exists, input.__baseline, item, [['description'], ['unit'], ['saleRate', 'number'], ['purchaseRate', 'number'], ['stockType'], ['brand'], ['category']], 'item')
+        ? mergeConcurrentFields(exists, input.__baseline, item, [['description'], ['unit'], ['itemRate', 'number'], ['saleRate', 'number'], ['purchaseRate', 'number'], ['brand'], ['category']], 'item')
         : item
       if (exists) {
-        db.prepare('UPDATE items SET description=?, unit=?, sale_rate=?, purchase_rate=?, stock_type=?, brand=?, category=? WHERE code=?')
-          .run(merged.description, merged.unit, merged.saleRate, merged.purchaseRate, merged.stockType, merged.brand, merged.category, item.code)
+        db.prepare('UPDATE items SET description=?, unit=?, item_rate=?, sale_rate=?, purchase_rate=?, brand=?, category=? WHERE code=?')
+          .run(merged.description, merged.unit, merged.itemRate, merged.saleRate, merged.purchaseRate, merged.brand, merged.category, item.code)
         recordAudit('ITEM_UPDATE', item.code)
       } else {
-        db.prepare('INSERT INTO items(code, description, unit, sale_rate, purchase_rate, stock_type, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(item.code, item.description, item.unit, item.saleRate, item.purchaseRate, item.stockType, item.brand, item.category)
+        db.prepare('INSERT INTO items(code, description, unit, item_rate, sale_rate, purchase_rate, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(item.code, item.description, item.unit, item.itemRate, item.saleRate, item.purchaseRate, item.brand, item.category)
         recordAudit('ITEM_SAVE', item.code)
       }
       if (quantityToAdd > 0) {
@@ -557,6 +676,8 @@ function createOfficeStore(db) {
           VALUES (?, 'OPENING', 'OPENING', ?, ?, ?, ?, ?)`).run(new Date().toISOString().slice(0, 10), item.code, location, quantityToAdd, merged.purchaseRate, amount)
         recordAudit('OPENING_BALANCE_SAVE', `${item.code} · ${location} · ${quantityToAdd}`)
       }
+      db.prepare('INSERT OR IGNORE INTO item_brands(name) VALUES (?)').run(merged.brand)
+      db.prepare('INSERT OR IGNORE INTO item_categories(name) VALUES (?)').run(merged.category)
       return listItems().find((row) => row.code === item.code)
     })()
   }
@@ -612,13 +733,14 @@ function createOfficeStore(db) {
     const canSeePurchases = permissions.has('Purchase Challans') || permissions.has('Reports')
     const canSeeSales = permissions.has('Sale Challans') || permissions.has('Reports')
     const canSeeStock = ['Items', 'Purchase Challans', 'Sale Challans', 'Reports', 'Transfer', 'Item Opening Balances'].some((permission) => permissions.has(permission))
-    const today = new Date().toISOString().slice(0, 10)
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     const counts = {
       accounts: canSeeAccounts ? db.prepare('SELECT COUNT(*) AS count FROM accounts').get().count : null,
       items: canSeeItems ? db.prepare('SELECT COUNT(*) AS count FROM items').get().count : null,
       banks: canSeeBanks ? db.prepare('SELECT COUNT(*) AS count FROM banks').get().count : null,
       purchasesToday: canSeePurchases ? db.prepare("SELECT COALESCE(SUM(total), 0) AS total FROM challans WHERE type='PURCHASE' AND date=?").get(today).total : null,
       salesToday: canSeeSales ? db.prepare("SELECT COALESCE(SUM(total), 0) AS total FROM challans WHERE type='SALE' AND date=?").get(today).total : null,
+      challansToday: canSeePurchases || canSeeSales ? db.prepare(`SELECT COUNT(*) AS count FROM challans WHERE date=? AND type IN (${[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean).map(() => '?').join(',')})`).get(today, ...[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean)).count : null,
     }
     const brandRows = (canSeePurchases || canSeeSales) ? db.prepare(`SELECT COALESCE(NULLIF(TRIM(i.brand), ''), 'Unbranded') AS brand,
       SUM(CASE WHEN c.type='PURCHASE' THEN cl.amount ELSE 0 END) AS purchases,
@@ -631,17 +753,17 @@ function createOfficeStore(db) {
     const recent = canSeePurchases || canSeeSales
       ? db.prepare(`SELECT number, type, date, party, total FROM challans WHERE type IN (${[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean).map(() => '?').join(',')}) ORDER BY date DESC, number DESC LIMIT 8`).all(...[canSeePurchases && 'PURCHASE', canSeeSales && 'SALE'].filter(Boolean))
       : []
-    const stock = canSeeStock ? db.prepare(`SELECT COALESCE(SUM(balance), 0) AS quantity FROM (
-      SELECT SUM(quantity) AS balance FROM stock_movements GROUP BY item_code, location HAVING SUM(quantity) > 0
-    )`).get().quantity : null
-    return { today, counts, brandTotals, recent, canSeeRecent: canSeePurchases || canSeeSales, stockQuantity: stock }
+    const stockedItems = canSeeStock ? db.prepare(`SELECT COUNT(*) AS count FROM (
+      SELECT item_code FROM stock_movements GROUP BY item_code HAVING SUM(quantity) > 0
+    )`).get().count : null
+    return { today, counts, brandTotals, recent, canSeeRecent: canSeePurchases || canSeeSales, stockedItems }
   }
 
   function listChallans(type) {
     const documents = type
       ? db.prepare('SELECT number, type, date, party, location, total FROM challans WHERE type=? ORDER BY date DESC, number DESC').all(type)
       : db.prepare('SELECT number, type, date, party, location, total FROM challans ORDER BY date DESC, number DESC').all()
-    const getLines = db.prepare('SELECT line_number AS lineNumber, item_code AS itemCode, item_label AS itemLabel, quantity, rate, amount FROM challan_lines WHERE challan_number=? ORDER BY line_number')
+    const getLines = db.prepare('SELECT line_number AS lineNumber, item_code AS itemCode, item_label AS itemLabel, quantity, rate, amount, discount_percent AS discountPercent, discount_amount AS discountAmount, brand, category FROM challan_lines WHERE challan_number=? ORDER BY line_number')
     return documents.map((document) => ({ ...document, lines: getLines.all(document.number).map((line) => ({ ...line, itemCode: line.itemCode ?? '' })) }))
   }
 
@@ -720,29 +842,6 @@ function createOfficeStore(db) {
     recordAudit('STOCK_TRANSFER', `${transferId} · ${itemCode} · ${quantity} · ${fromLocation} → ${toLocation}`)
     return { transferId, date, itemCode, fromLocation, toLocation, quantity }
   })
-
-  function listStockTypes() {
-    return db.prepare('SELECT code, description FROM stock_types ORDER BY code').all()
-  }
-
-  function saveStockType(input) {
-    const code = required(input.code, 'Stock type code').toUpperCase()
-    const description = required(input.description, 'Stock type description')
-    const exists = db.prepare('SELECT 1 FROM stock_types WHERE code=?').get(code)
-    db.prepare(`INSERT INTO stock_types(code, description) VALUES (?, ?)
-      ON CONFLICT(code) DO UPDATE SET description=excluded.description`).run(code, description)
-    recordAudit(exists ? 'STOCK_TYPE_UPDATE' : 'STOCK_TYPE_SAVE', code)
-    return { code, description }
-  }
-
-  function deleteStockType(codeInput) {
-    const code = required(codeInput, 'Stock type code').toUpperCase()
-    if (['REG', 'SER'].includes(code)) throw new Error('Built-in stock types cannot be deleted')
-    if (db.prepare('SELECT 1 FROM items WHERE stock_type=? LIMIT 1').get(code)) throw new Error('Stock type is assigned to items and cannot be deleted')
-    const result = db.prepare('DELETE FROM stock_types WHERE code=?').run(code)
-    if (!result.changes) throw new Error('Stock type does not exist')
-    recordAudit('STOCK_TYPE_DELETE', code)
-  }
 
   function listVouchers(types = null) {
     const headers = types?.length
@@ -834,12 +933,16 @@ function createOfficeStore(db) {
     const lines = input.lines.map((line) => {
       const itemCode = String(line.itemCode || '').trim()
       const itemLabel = String(line.itemLabel || '').trim()
-      const item = itemCode ? db.prepare('SELECT code, sale_rate, purchase_rate FROM items WHERE code=?').get(itemCode) : null
+      const item = itemCode ? db.prepare('SELECT code, sale_rate, purchase_rate, item_rate, brand, category FROM items WHERE code=?').get(itemCode) : null
       if (itemCode && !item) throw new Error(`Unknown item: ${itemCode}`)
       if (!itemCode && !itemLabel) throw new Error('Choose a catalog item or enter a line label')
       const quantity = positive(line.quantity, 'Quantity')
-      const rate = nonNegative(item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : line.rate, 'Item rate')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, amount: quantity * rate }
+      const rate = nonNegative(line.rate ?? (item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : 0), 'Item rate')
+      const gross = quantity * rate
+      const discountPercent = nonNegative(line.discountPercent ?? 0, 'Discount percent')
+      const discountAmount = nonNegative(line.discountAmount ?? gross * discountPercent / 100, 'Discount amount')
+      if (discountPercent > 100 || discountAmount > gross) throw new Error('Discount cannot exceed the line amount')
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent, discountAmount, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount: gross - discountAmount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -851,11 +954,11 @@ function createOfficeStore(db) {
     const total = lines.reduce((sum, line) => sum + line.amount, 0)
     db.prepare('INSERT INTO challans(number, type, date, party, location, total) VALUES (?, ?, ?, ?, ?, ?)')
       .run(number, type, date, party, location, total)
-    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount, discount_percent, discount_amount, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const insertMovement = db.prepare('INSERT INTO stock_movements(date, document, type, item_code, location, quantity, rate, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     lines.forEach((line, index) => {
       const signedQuantity = type === 'PURCHASE' ? line.quantity : -line.quantity
-      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount)
+      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.discountPercent, line.discountAmount, line.brand, line.category)
       if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.rate, signedQuantity * line.rate)
     })
     recordAudit('CHALLAN_POST', number)
@@ -868,7 +971,7 @@ function createOfficeStore(db) {
     if (!existing) throw new Error('Challan does not exist')
     const type = existing.type
     if (input.type && String(input.type).toUpperCase() !== type) throw new Error('A challan cannot be changed from purchase to sale or vice versa')
-    const current = { ...existing, lines: db.prepare('SELECT item_code AS itemCode, item_label AS itemLabel, quantity, rate FROM challan_lines WHERE challan_number=? ORDER BY line_number').all(number) }
+    const current = { ...existing, lines: db.prepare('SELECT item_code AS itemCode, item_label AS itemLabel, quantity, rate, discount_percent AS discountPercent, discount_amount AS discountAmount, brand, category FROM challan_lines WHERE challan_number=? ORDER BY line_number').all(number) }
     const proposed = { date: input.date, party: input.party, location: input.location, lines: input.lines }
     const changes = input.__baseline
       ? mergeConcurrentFields(current, input.__baseline, proposed, [['date'], ['party'], ['location'], ['lines', 'lines']], 'challan')
@@ -887,12 +990,16 @@ function createOfficeStore(db) {
     const lines = changes.lines.map((line) => {
       const itemCode = String(line.itemCode || '').trim()
       const itemLabel = String(line.itemLabel || '').trim()
-      const item = itemCode ? db.prepare('SELECT sale_rate, purchase_rate FROM items WHERE code=?').get(itemCode) : null
+      const item = itemCode ? db.prepare('SELECT sale_rate, purchase_rate, item_rate, brand, category FROM items WHERE code=?').get(itemCode) : null
       if (itemCode && !item) throw new Error(`Unknown item: ${itemCode}`)
       if (!itemCode && !itemLabel) throw new Error('Choose a catalog item or enter a line label')
       const quantity = positive(line.quantity, 'Quantity')
-      const rate = nonNegative(item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : line.rate, 'Item rate')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, amount: quantity * rate }
+      const rate = nonNegative(line.rate ?? (item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : 0), 'Item rate')
+      const gross = quantity * rate
+      const discountPercent = nonNegative(line.discountPercent ?? 0, 'Discount percent')
+      const discountAmount = nonNegative(line.discountAmount ?? gross * discountPercent / 100, 'Discount amount')
+      if (discountPercent > 100 || discountAmount > gross) throw new Error('Discount cannot exceed the line amount')
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent, discountAmount, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount: gross - discountAmount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -902,11 +1009,11 @@ function createOfficeStore(db) {
     const total = lines.reduce((sum, line) => sum + line.amount, 0)
     db.prepare('UPDATE challans SET date=?, party=?, location=?, total=? WHERE number=?').run(date, party, location, total, number)
     db.prepare('DELETE FROM challan_lines WHERE challan_number=?').run(number)
-    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount, discount_percent, discount_amount, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const insertMovement = db.prepare('INSERT INTO stock_movements(date, document, type, item_code, location, quantity, rate, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     lines.forEach((line, index) => {
       const signedQuantity = type === 'PURCHASE' ? line.quantity : -line.quantity
-      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount)
+      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.discountPercent, line.discountAmount, line.brand, line.category)
       if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.rate, signedQuantity * line.rate)
     })
     const affected = new Map(oldMovements.map((movement) => [`${movement.itemCode}\u0000${movement.location}`, movement]))
@@ -1001,11 +1108,10 @@ function createOfficeStore(db) {
     close: () => db.close(), backupTo, exportData, verifyDatabase,
     nextId: (entity) => nextOfficeId(entity),
     getDashboard, getCompanyProfile, hasCompanyProfile, saveCompanyProfile, hasAdminToolsPassword, configureAdminToolsPassword, verifyAdminToolsPassword, listAccounts, saveAccount, deleteAccount,
-    listItems, saveItem, createItemFromChallan, deleteItem, listBanks, saveBank, deleteBank,
+    listItems, listItemAttributes, listItemCategories, saveItemCategory, saveItemAttribute, renameItemCategory, deleteItemCategory, saveItem, createItemFromChallan, deleteItem, listBanks, saveBank, deleteBank,
     listChallans, postChallan: (input) => postChallanTransaction(input), updateChallan: (input) => updateChallanTransaction(input), deleteChallan: (number) => deleteChallanTransaction(number),
     getStock, listLocations, saveLocation, deleteLocation, listStockMovements, listOpeningBalances,
     addOpeningBalance: (input) => addOpeningBalanceTransaction(input), transferStock: (input) => transferStockTransaction(input),
-    listStockTypes, saveStockType, deleteStockType,
     listVouchers, saveVoucher: (input) => saveVoucherTransaction(input), deleteVoucher, getVoucherType,
     listCheques, saveCheque, deleteCheque: (number) => deleteChequeTransaction(number),
     getChallanType: (number) => db.prepare('SELECT type FROM challans WHERE number=?').get(number)?.type ?? null,
@@ -1013,7 +1119,6 @@ function createOfficeStore(db) {
     listPermissionPresets, savePermissionPreset, deletePermissionPreset,
     listDevices, registerDevice, getActiveDevice, revokeDevice,
     hasUsers: () => Boolean(db.prepare('SELECT 1 FROM users LIMIT 1').get()),
-    getStockTypes: listStockTypes,
   }
 }
 
@@ -1053,6 +1158,7 @@ function normalizePermissions(values) {
     'Cheque Detail': 'Cheque Detail', 'User Rights': 'User Rights', 'Audit Log': 'Audit Log',
   }
   const permissions = new Set(values.map((permission) => aliases[permission] || permission))
+  permissions.delete('Stock Types')
   permissions.add('Overview')
   permissions.add('Manual')
   if (permissions.has('User Rights')) {
@@ -1060,7 +1166,6 @@ function normalizePermissions(values) {
     permissions.add('Database Tools')
   }
   if (permissions.has('User Rights')) {
-    permissions.add('Stock Types')
     permissions.add('Locations')
     permissions.add('Item Opening Balances')
     permissions.add('Transfer')

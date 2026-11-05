@@ -69,10 +69,13 @@ public final class SQLiteDatabase implements AutoCloseable {
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS company_profile (id INTEGER PRIMARY KEY CHECK(id = 1), name TEXT NOT NULL, address TEXT NOT NULL, phone TEXT NOT NULL, fiscal_year TEXT NOT NULL, logo_path TEXT NOT NULL)");
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, permissions TEXT NOT NULL)");
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS accounts (code TEXT PRIMARY KEY, description TEXT NOT NULL, parent_code TEXT, opening_balance NUMERIC NOT NULL DEFAULT 0, FOREIGN KEY(parent_code) REFERENCES accounts(code))");
-        statement.executeUpdate("CREATE TABLE IF NOT EXISTS items (code TEXT PRIMARY KEY, description TEXT NOT NULL, unit TEXT NOT NULL, sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL, stock_type TEXT NOT NULL)");
-        statement.executeUpdate("CREATE TABLE IF NOT EXISTS stock_types (code TEXT PRIMARY KEY, description TEXT NOT NULL)");
-        statement.executeUpdate("INSERT OR IGNORE INTO stock_types(code, description) VALUES ('REG', 'Regular')");
-        statement.executeUpdate("INSERT OR IGNORE INTO stock_types(code, description) VALUES ('SER', 'Service')");
+        statement.executeUpdate("CREATE TABLE IF NOT EXISTS items (code TEXT PRIMARY KEY, description TEXT NOT NULL, unit TEXT NOT NULL, sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL)");
+        ResultSet itemColumns = statement.executeQuery("PRAGMA table_info(items)");
+        boolean hasLegacyStockType = false;
+        while (itemColumns.next()) if ("stock_type".equals(itemColumns.getString("name"))) hasLegacyStockType = true;
+        itemColumns.close();
+        if (hasLegacyStockType) statement.executeUpdate("ALTER TABLE items DROP COLUMN stock_type");
+        statement.executeUpdate("DROP TABLE IF EXISTS stock_types");
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS banks (code TEXT PRIMARY KEY, name TEXT NOT NULL, account_number TEXT, opening_balance NUMERIC NOT NULL DEFAULT 0, address TEXT, phone TEXT)");
         statement.executeUpdate("CREATE TABLE IF NOT EXISTS cheques (number TEXT PRIMARY KEY, bank_code TEXT NOT NULL, cheque_date TEXT NOT NULL, party TEXT NOT NULL, amount NUMERIC NOT NULL, status TEXT NOT NULL, manual_id TEXT, FOREIGN KEY(bank_code) REFERENCES banks(code))");
         // Older databases created the cheques table without manual_id; add it when missing.

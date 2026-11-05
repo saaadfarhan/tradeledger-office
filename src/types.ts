@@ -12,6 +12,13 @@ export type Account = {
   openingBalance: number;
   openingBalanceSide: "DEBIT" | "CREDIT";
   accountType: AccountType;
+  phoneNo: string;
+  ntnNumber: string;
+  mobileNo: string;
+  gstNo: string;
+  address: string;
+  partyType: "" | "SUPPLIER" | "BANK ACCOUNT";
+  cashBank: "" | "CASH" | "BANK";
 };
 export type Item = {
   code: string;
@@ -19,11 +26,13 @@ export type Item = {
   unit: string;
   saleRate: number;
   purchaseRate: number;
-  stockType: string;
   brand: string;
   category: string;
+  itemRate: number;
   stockQuantity: number;
 };
+export type ItemAttributes = { brands: string[]; categories: string[] };
+export type ItemCategory = { id: number; name: string; description: string };
 export type Bank = {
   code: string;
   name: string;
@@ -33,7 +42,6 @@ export type Bank = {
   phone: string;
   ledgerAccountCode: string;
 };
-export type StockType = { code: string; description: string };
 export type StockMovement = {
   id: number;
   date: string;
@@ -63,12 +71,20 @@ export type ChallanLine = {
   quantity: number;
   rate: number;
   amount: number;
+  discountPercent: number;
+  discountAmount: number;
+  brand: string;
+  category: string;
 };
 export type ChallanInputLine = {
   itemCode?: string;
   itemLabel?: string;
   quantity: number;
   rate?: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  brand?: string;
+  category?: string;
 };
 export type Challan = {
   number: string;
@@ -113,8 +129,13 @@ export type Dashboard = {
     banks: number | null;
     purchasesToday: number | null;
     salesToday: number | null;
+    challansToday: number | null;
   };
-  brandTotals: Array<{ brand: string; purchases: number | null; sales: number | null }>;
+  brandTotals: Array<{
+    brand: string;
+    purchases: number | null;
+    sales: number | null;
+  }>;
   recent: Array<{
     number: string;
     type: string;
@@ -123,7 +144,7 @@ export type Dashboard = {
     total: number;
   }>;
   canSeeRecent: boolean;
-  stockQuantity: number | null;
+  stockedItems: number | null;
 };
 export type OfficeUser = {
   username: string;
@@ -365,6 +386,22 @@ export type OfficeBridge = {
   };
   items: {
     list: () => Promise<Item[]>;
+    attributes: () => Promise<ItemAttributes>;
+    categories: () => Promise<ItemCategory[]>;
+    saveCategory: (value: {
+      name: string;
+      description: string;
+      originalName?: string;
+    }) => Promise<ItemCategory[]>;
+    addAttribute: (value: {
+      kind: "brand" | "category";
+      value: string;
+    }) => Promise<ItemAttributes>;
+    renameCategory: (
+      oldName: string,
+      newName: string,
+    ) => Promise<ItemAttributes>;
+    deleteCategory: (name: string) => Promise<ItemAttributes>;
     save: (value: Item & { __baseline?: Partial<Item> }) => Promise<Item>;
     createForChallan: (value: {
       type: "PURCHASE" | "SALE";
@@ -405,9 +442,6 @@ export type OfficeBridge = {
   stock: {
     locations: () => Promise<string[]>;
     quantity: (itemCode: string, location: string) => Promise<number>;
-    types: () => Promise<StockType[]>;
-    saveType: (value: StockType) => Promise<StockType>;
-    removeType: (code: string) => Promise<void>;
     movements: () => Promise<StockMovement[]>;
     openings: () => Promise<OpeningBalance[]>;
     addOpening: (value: {

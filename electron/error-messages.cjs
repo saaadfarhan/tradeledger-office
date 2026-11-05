@@ -3,7 +3,7 @@ function userFacingError(error, channel = '') {
   const code = String(error?.code || '')
 
   if (code === 'OFFICE_AUTH_EXPIRED' || /sign-in expired/i.test(message)) {
-    return 'The shared office no longer recognizes this sign-in. Its app may have restarted, or the account/device authorization may have changed. Confirm the host is still running and your device is active under the correct user, then sign in again.'
+    return 'The shared office no longer recognizes this sign-in. Its app may have restarted, or the account/device authorization may have changed. Confirm the host is still running and your device is active under the correct user. Please sign in again.'
   }
   if (/timed out/i.test(message) || ['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(code)) {
     if (channel === 'ids:next') {

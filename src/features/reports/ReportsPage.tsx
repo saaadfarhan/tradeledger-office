@@ -46,7 +46,6 @@ type ReportDestination = "items" | "accounts" | "banks";
 
 const AS_OF_REPORTS = [
   "Stock Summary",
-  "Type Wise Item Report",
   "Balance Sheet",
   "Receivables",
   "Payables",
@@ -212,13 +211,6 @@ const REPORT_COLUMNS: Record<string, string[]> = {
     "Purchase",
     "Sale",
     "Sales less purchases",
-  ],
-  "Type Wise Item Report": [
-    "Stock type",
-    "Item",
-    "Description",
-    "Current quantity",
-    "Purchase rate",
   ],
   "OS Cheques": [
     "Number",
@@ -1408,23 +1400,6 @@ function buildReport(
       ];
     });
   }
-  if (name === "Type Wise Item Report")
-    return items
-      .filter((item) =>
-        has(`${item.code} ${item.description} ${item.stockType}`),
-      )
-      .map((item) => ({
-        "Stock type": item.stockType,
-        Item: item.code,
-        Description: item.description,
-        "Current quantity": movements
-          .filter(
-            (movement) =>
-              movement.itemCode === item.code && throughTo(movement.date),
-          )
-          .reduce((sum, movement) => sum + movement.quantity, 0),
-        "Purchase rate": item.purchaseRate,
-      }));
   if (name === "Receivables" || name === "Payables") {
     return [...partyCodes]
       .map((code) => ({

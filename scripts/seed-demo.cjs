@@ -13,7 +13,6 @@ const businessTables = [
   "users",
   "accounts",
   "items",
-  "stock_types",
   "locations",
   "banks",
   "cheques",
@@ -178,10 +177,6 @@ function seed(store) {
     }),
   );
 
-  store.saveStockType({ code: "REG", description: "Regular merchandise" });
-  store.saveStockType({ code: "SER", description: "Services" });
-  store.saveStockType({ code: "BULK", description: "Bulk goods" });
-  store.saveStockType({ code: "PACK", description: "Packaged goods" });
 
   const items = [
     {
@@ -190,7 +185,8 @@ function seed(store) {
       unit: "Bag",
       purchaseRate: 6400,
       saleRate: 7100,
-      stockType: "BULK",
+      brand: "Mehr Foods",
+      category: "Rice & Grains",
     },
     {
       code: "ITM-00002",
@@ -198,7 +194,8 @@ function seed(store) {
       unit: "Tin",
       purchaseRate: 2250,
       saleRate: 2520,
-      stockType: "PACK",
+      brand: "Sufi",
+      category: "Cooking Oil",
     },
     {
       code: "ITM-00003",
@@ -206,7 +203,8 @@ function seed(store) {
       unit: "Bag",
       purchaseRate: 7200,
       saleRate: 7800,
-      stockType: "BULK",
+      brand: "TradeLedger Select",
+      category: "Sweeteners",
     },
     {
       code: "ITM-00004",
@@ -214,7 +212,8 @@ function seed(store) {
       unit: "Pack",
       purchaseRate: 310,
       saleRate: 365,
-      stockType: "PACK",
+      brand: "TradeLedger Select",
+      category: "Pulses",
     },
     {
       code: "ITM-00005",
@@ -222,7 +221,8 @@ function seed(store) {
       unit: "Pack",
       purchaseRate: 780,
       saleRate: 930,
-      stockType: "PACK",
+      brand: "Tapal",
+      category: "Tea & Beverages",
     },
     {
       code: "ITM-00006",
@@ -230,7 +230,8 @@ function seed(store) {
       unit: "Bottle",
       purchaseRate: 82,
       saleRate: 110,
-      stockType: "PACK",
+      brand: "Aquafina",
+      category: "Tea & Beverages",
     },
     {
       code: "ITM-00007",
@@ -238,7 +239,8 @@ function seed(store) {
       unit: "Bag",
       purchaseRate: 1450,
       saleRate: 1690,
-      stockType: "BULK",
+      brand: "TradeLedger Select",
+      category: "Rice & Grains",
     },
     {
       code: "ITM-00008",
@@ -246,7 +248,8 @@ function seed(store) {
       unit: "Pack",
       purchaseRate: 420,
       saleRate: 495,
-      stockType: "PACK",
+      brand: "TradeLedger Select",
+      category: "Pulses",
     },
     {
       code: "ITM-00009",
@@ -254,7 +257,8 @@ function seed(store) {
       unit: "Pack",
       purchaseRate: 890,
       saleRate: 1050,
-      stockType: "PACK",
+      brand: "Surf Excel",
+      category: "Household",
     },
     {
       code: "ITM-00010",
@@ -262,7 +266,8 @@ function seed(store) {
       unit: "Set",
       purchaseRate: 1100,
       saleRate: 1390,
-      stockType: "REG",
+      brand: "TradeLedger Select",
+      category: "Household",
     },
     {
       code: "ITM-00011",
@@ -270,7 +275,8 @@ function seed(store) {
       unit: "Service",
       purchaseRate: 0,
       saleRate: 1200,
-      stockType: "SER",
+      brand: "TradeLedger Services",
+      category: "Services",
     },
     {
       code: "ITM-00012",
@@ -278,7 +284,8 @@ function seed(store) {
       unit: "Service",
       purchaseRate: 0,
       saleRate: 450,
-      stockType: "SER",
+      brand: "TradeLedger Services",
+      category: "Services",
     },
   ];
   items.forEach((item) => store.saveItem(item));
@@ -357,7 +364,7 @@ function seed(store) {
 
   const locations = ["Main Warehouse", "Saddar Branch", "Gulshan Outlet"];
   locations.forEach((location) => store.saveLocation(location));
-  const products = items.filter((item) => item.stockType !== "SER");
+  const products = items;
   for (const item of products)
     for (const location of locations)
       store.addOpeningBalance({ itemCode: item.code, location, quantity: 18 });

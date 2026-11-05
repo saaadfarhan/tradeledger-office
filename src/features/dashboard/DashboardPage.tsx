@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  Activity,
   ArrowDownToLine,
   ArrowUpFromLine,
   Building2,
@@ -23,8 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { CompanyProfile, Dashboard } from "@/types";
-import { karachiGreeting } from "@/lib/karachi-time";
+import type { Challan, CompanyProfile, Dashboard, Item } from "@/types";
 import type { Page } from "@/app/navigation";
 import { formatMoney as money } from "@/lib/formatters";
 
@@ -35,6 +33,8 @@ export function DashboardPage({
   username,
   company,
   logo,
+  items,
+  challans,
 }: {
   dashboard: Dashboard | null;
   onNavigate: (page: Page) => void;
@@ -42,36 +42,42 @@ export function DashboardPage({
   username: string;
   company: CompanyProfile | null;
   logo: string | null;
+  items: Item[];
+  challans: Challan[];
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const greeting = karachiGreeting(now);
-  const karachiDate = new Intl.DateTimeFormat("en-PK", {
-    timeZone: "Asia/Karachi",
+  const localHour = now.getHours();
+  const greeting = localHour >= 5 && localHour < 12
+    ? "Good morning"
+    : localHour >= 12 && localHour < 17
+      ? "Good afternoon"
+      : localHour >= 17 && localHour < 22
+        ? "Good evening"
+        : "Welcome back";
+  const localDate = new Intl.DateTimeFormat(undefined, {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
   }).format(now);
-  const karachiTime = new Intl.DateTimeFormat("en-PK", {
-    timeZone: "Asia/Karachi",
+  const localTime = new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(now);
   const stats = [
     {
-      label: "Purchases today",
-      value:
-        dashboard?.counts.purchasesToday == null
-          ? "—"
-          : money(dashboard.counts.purchasesToday),
-      icon: ArrowDownToLine,
+      label: "Total Items",
+      value: dashboard?.counts.items ?? "—",
+      icon: Package,
+      note: "In the item list",
     },
+    { label: "Stock Value", value: money(items.reduce((sum, item) => sum + item.stockQuantity * item.purchaseRate, 0)), icon: Building2, note: "At purchase rates" },
     {
-      label: "Sales today",
+      label: "Today's Sales",
       value:
         dashboard?.counts.salesToday == null
           ? "—"
@@ -79,58 +85,67 @@ export function DashboardPage({
       icon: ArrowUpFromLine,
     },
     {
-      label: "Accounts",
-      value: dashboard?.counts.accounts ?? "—",
-      icon: Building2,
+      label: "Today's Purchases",
+      value:
+        dashboard?.counts.purchasesToday == null
+          ? "—"
+          : money(dashboard.counts.purchasesToday),
+      icon: ArrowDownToLine,
     },
-    { label: "Items", value: dashboard?.counts.items ?? "—", icon: Package },
   ];
+  const week = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(now); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - (6 - index));
+    const iso = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
+    const values = challans.filter((row) => row.date === iso).reduce((sum, row) => { if (row.type === 'SALE') sum.sales += row.total; else sum.purchases += row.total; return sum; }, { sales: 0, purchases: 0 });
+    return { iso, label: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day), ...values };
+  });
+  const chartMax = Math.max(1, ...week.flatMap((day) => [day.sales, day.purchases]));
   return (
-    <section className="flex flex-col gap-4">
-      <section className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            {karachiDate} · {karachiTime} PKT
-          </p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight">
-            {greeting}, {username}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Here is the current activity in your office.
-          </p>
+    <section className="flex flex-col gap-5">
+      <header className="relative isolate overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-secondary/65 p-4 shadow-sm sm:p-6 lg:p-7">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 -z-10 size-64 rounded-full bg-primary/10 blur-3xl" />
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-wide text-primary">{localDate} <span className="text-muted-foreground">· {localTime}</span></p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{greeting}, {username}</h1>
+            <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Here’s what’s happening in your office today.</p>
+          </div>
+          <div className="min-w-0 rounded-xl border bg-background/75 px-3 py-2.5 shadow-sm sm:px-4">
+            <CompanyBusinessCard company={company} logo={logo} />
+          </div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-5 gap-y-2">
-          <CompanyBusinessCard company={company} logo={logo} />
-          <Badge variant="secondary" className="gap-1.5">
-            <Activity className="size-3.5" /> Offline-ready
-          </Badge>
-        </div>
-      </section>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon }) => (
-          <Card key={label}>
-            <CardContent className="flex items-center justify-between p-4">
-              <div>
+      </header>
+      <section aria-label="Office summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map(({ label, value, icon: Icon, note }, index) => (
+          <Card key={label} className="transition-colors hover:border-primary/25">
+            <CardContent className="flex items-center justify-between gap-3 p-4 sm:p-5">
+              <div className="min-w-0">
                 <p className="text-sm text-muted-foreground">{label}</p>
-                <p className="mt-1.5 text-xl font-semibold tabular-nums">
-                  {value}
-                </p>
+                <p className="mt-2 truncate text-xl font-semibold tracking-tight tabular-nums">{value}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{note ?? "Today"}</p>
               </div>
-              <div className="grid size-8 place-items-center rounded-md border bg-muted text-muted-foreground">
+              <div className={`grid size-9 shrink-0 place-items-center rounded-xl ${index === 1 ? "bg-accent text-accent-foreground" : index === 0 ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
                 <Icon className="size-4" />
               </div>
             </CardContent>
           </Card>
         ))}
       </section>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Sales vs purchases · last 7 days</CardTitle><CardDescription>Daily totals from posted challans.</CardDescription></CardHeader>
+        <CardContent>
+          <div className="mb-4 flex gap-5 text-sm"><span className="flex items-center gap-2"><i className="size-2.5 rounded-sm bg-primary"/>Sales</span><span className="flex items-center gap-2"><i className="size-2.5 rounded-sm bg-muted-foreground/40"/>Purchases</span></div>
+          <div className="grid h-48 grid-cols-7 items-end gap-3 sm:gap-6">{week.map((day) => <div key={day.iso} className="flex h-full flex-col items-center justify-end gap-2"><div className="flex h-[calc(100%-1.5rem)] w-full items-end justify-center gap-1"><div title={`Sales ${money(day.sales)}`} className="w-1/3 rounded-t bg-primary" style={{ height: `${Math.max(2, day.sales / chartMax * 100)}%` }}/><div title={`Purchases ${money(day.purchases)}`} className="w-1/3 rounded-t bg-muted-foreground/40" style={{ height: `${Math.max(2, day.purchases / chartMax * 100)}%` }}/></div><span className="text-xs text-muted-foreground">{day.label}</span></div>)}</div>
+        </CardContent>
+      </Card>
       {dashboard?.canSeeRecent && (
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <CardTitle className="text-base">Brand performance</CardTitle>
+                <CardTitle className="text-base">Today by brand</CardTitle>
                 <CardDescription className="mt-1">
-                  Today’s purchase and sale totals grouped by item brand.
+                  Purchase and sale amounts for each brand, based on today’s challans.
                 </CardDescription>
               </div>
               <Badge variant="outline">{dashboard.brandTotals?.length ?? 0} brands</Badge>
@@ -232,7 +247,7 @@ export function DashboardPage({
                 .map(({ page, label, icon: Icon }) => (
                   <Button
                     key={page}
-                    variant="outline"
+                    variant={page === "purchase" ? "default" : page === "sale" ? "secondary" : "outline"}
                     className="justify-start"
                     onClick={() => onNavigate(page)}
                   >
@@ -244,17 +259,17 @@ export function DashboardPage({
           </Card>
         </section>
       )}
-      {dashboard?.stockQuantity != null && (
+      {dashboard?.stockedItems != null && (
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div>
-              <p className="font-medium">Stock position</p>
-              <p className="text-sm text-muted-foreground">
-                Net available units across recorded locations
+              <p className="font-medium">Items with stock</p>
+                <p className="text-sm text-muted-foreground">
+                Distinct items with a positive recorded balance
               </p>
             </div>
-            <p className="text-xl font-semibold tabular-nums">
-              {money(dashboard.stockQuantity)}
+            <p className="text-2xl font-semibold tabular-nums">
+              {dashboard.stockedItems}
             </p>
           </CardContent>
         </Card>

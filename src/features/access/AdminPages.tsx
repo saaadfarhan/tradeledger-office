@@ -21,13 +21,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   AuditEvent,
@@ -66,7 +66,7 @@ export function UserRightsPage({
   const [permissions, setPermissions] = useState<string[]>([]);
   const [activePreset, setActivePreset] = useState("");
   const [editing, setEditing] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteUserOpen, setDeleteUserOpen] = useState(false);
   const [devices, setDevices] = useState<AuthorizedDevice[]>([]);
@@ -76,7 +76,7 @@ export function UserRightsPage({
   const [issuedPassphrase, setIssuedPassphrase] = useState("");
   const [presets, setPresets] = useState<UserPermissionPreset[]>([]);
   const [activeTab, setActiveTab] = useState("users");
-  const [presetSheetOpen, setPresetSheetOpen] = useState(false);
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false);
   const [presetEditingName, setPresetEditingName] = useState("");
   const [presetName, setPresetName] = useState("");
   const [presetDescription, setPresetDescription] = useState("");
@@ -128,7 +128,7 @@ export function UserRightsPage({
     setPermissions([]);
     setActivePreset("");
     setEditing(false);
-    setSheetOpen(false);
+    setDialogOpen(false);
   };
   const selectUser = (user: OfficeUser) => {
     if (!isAdministrator) return;
@@ -138,7 +138,7 @@ export function UserRightsPage({
     setPermissions(user.permissions);
     setActivePreset("");
     setEditing(true);
-    setSheetOpen(true);
+    setDialogOpen(true);
   };
   const newUser = () => {
     if (!isAdministrator) return;
@@ -148,7 +148,7 @@ export function UserRightsPage({
     setPermissions([]);
     setActivePreset("");
     setEditing(false);
-    setSheetOpen(true);
+    setDialogOpen(true);
   };
   async function save(event: React.SubmitEvent) {
     event.preventDefault();
@@ -226,7 +226,7 @@ export function UserRightsPage({
     setPresetName(preset?.name || "");
     setPresetDescription(preset?.description || "");
     setPresetPermissions(preset?.permissions || []);
-    setPresetSheetOpen(true);
+    setPresetDialogOpen(true);
   }
   async function savePreset(event: React.FormEvent) {
     event.preventDefault();
@@ -239,7 +239,7 @@ export function UserRightsPage({
           permissions: presetPermissions,
         }),
       );
-      setPresetSheetOpen(false);
+      setPresetDialogOpen(false);
       toast.success("Permission preset saved");
     } catch (error) {
       toast.error(
@@ -653,11 +653,11 @@ export function UserRightsPage({
         Passwords are stored as salted PBKDF2 hashes. Page access is checked by
         the Electron data bridge as well as navigation.
       </p>
-      <Sheet
+      <Dialog
         open={isAdministrator && sheetOpen}
         onOpenChange={(open) => {
           if (!isAdministrator) return;
-          setSheetOpen(open);
+          setDialogOpen(open);
           if (!open) {
             setUsername("");
             setPassword("");
@@ -668,20 +668,19 @@ export function UserRightsPage({
           }
         }}
       >
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(100vw,38rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
+        <DialogContent
+          className="flex max-h-[90vh] w-[min(96vw,48rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-4 py-4 sm:px-6 sm:py-5">
-            <SheetTitle>
+          <DialogHeader className="border-b px-4 py-4 sm:px-6 sm:py-5">
+            <DialogTitle>
               {editing ? `Edit ${username}` : "Create office user"}
-            </SheetTitle>
-            <SheetDescription>
+            </DialogTitle>
+            <DialogDescription>
               {editing
                 ? "Update this account’s page access. Leave password blank to keep the current password."
                 : "Create a local sign-in account and choose the pages it may access."}
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <form
             onSubmit={(event) => void save(event)}
             className="flex min-h-0 flex-1 flex-col"
@@ -770,7 +769,7 @@ export function UserRightsPage({
                         variant="link"
                         className="h-auto p-0 text-xs"
                         onClick={() => {
-                          setSheetOpen(false);
+                          setDialogOpen(false);
                           setActiveTab("presets");
                         }}
                       >
@@ -825,7 +824,7 @@ export function UserRightsPage({
                   )}
               </FieldGroup>
             </div>
-            <SheetFooter className="mt-0 flex-col-reverse items-stretch gap-2 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+            <DialogFooter className="mt-0 flex-col-reverse items-stretch gap-2 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
               {editing && username !== currentUsername ? (
                 <Button
                   className="w-full sm:w-auto"
@@ -867,26 +866,25 @@ export function UserRightsPage({
                       : "Create user"}
                 </Button>
               </div>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
-      <Sheet open={presetSheetOpen} onOpenChange={setPresetSheetOpen}>
-        <SheetContent
-          side="right"
-          className="flex data-[side=right]:w-[min(100vw,38rem)] flex-col gap-0 overflow-hidden p-0 data-[side=right]:sm:max-w-none"
+        </DialogContent>
+      </Dialog>
+      <Dialog open={presetDialogOpen} onOpenChange={setPresetDialogOpen}>
+        <DialogContent
+          className="flex max-h-[90vh] w-[min(96vw,48rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         >
-          <SheetHeader className="border-b px-4 py-4 sm:px-6">
-            <SheetTitle>
+          <DialogHeader className="border-b px-4 py-4 sm:px-6">
+            <DialogTitle>
               {presetEditingName
                 ? `Edit ${presetEditingName}`
                 : "Create permission preset"}
-            </SheetTitle>
-            <SheetDescription>
+            </DialogTitle>
+            <DialogDescription>
               Choose the pages this preset will grant when creating an office
               user.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <form
             onSubmit={(event) => void savePreset(event)}
             className="flex min-h-0 flex-1 flex-col"
@@ -946,11 +944,11 @@ export function UserRightsPage({
                 included in presets.
               </p>
             </div>
-            <SheetFooter className="mt-0 flex-col-reverse items-stretch gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6">
+            <DialogFooter className="mt-0 flex-col-reverse items-stretch gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end sm:px-6">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setPresetSheetOpen(false)}
+                onClick={() => setPresetDialogOpen(false)}
               >
                 Cancel
               </Button>
@@ -960,10 +958,10 @@ export function UserRightsPage({
               >
                 Save preset
               </Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
       <ConfirmActionDialog
         open={Boolean(presetToDelete)}
         onOpenChange={(open) => {

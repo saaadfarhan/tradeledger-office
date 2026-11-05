@@ -25,7 +25,6 @@ export const REPORT_NAMES = [
   "Item Ledger",
   "Party Item Detail",
   "PC Profit Report",
-  "Type Wise Item Report",
   "OS Cheques",
   "Party Activity Report",
 ];

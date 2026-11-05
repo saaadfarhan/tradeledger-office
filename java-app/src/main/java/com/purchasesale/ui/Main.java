@@ -107,7 +107,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class Main {
     private static final String HOME = "Home";
-    private static final String[] USER_PERMISSIONS = {"Chart of Account", "Items", "Bank", "Cheque Detail", "Opening Balances", "Stock Types", "Voucher", "Journal Voucher", "Purchase Challan", "Sale Challan", "Search Payment", "Transfer", "Reports", "Backup", "User Rights"};
+    private static final String[] USER_PERMISSIONS = {"Chart of Account", "Items", "Bank", "Cheque Detail", "Opening Balances", "Voucher", "Journal Voucher", "Purchase Challan", "Sale Challan", "Search Payment", "Transfer", "Reports", "Backup", "User Rights"};
     private final CardLayout layout = new CardLayout();
     private final JPanel cards = new JPanel(layout);
     private final JLabel status = new JLabel("  Demo mode: data is held in memory");
@@ -132,8 +132,6 @@ public final class Main {
     private final List<JComboBox<String>> accountSelectors = new ArrayList<JComboBox<String>>();
     private final List<JComboBox<String>> partySelectors = new ArrayList<JComboBox<String>>();
     private final List<JComboBox<String>> locationSelectors = new ArrayList<JComboBox<String>>();
-    private final Map<String, String> stockTypes = new LinkedHashMap<String, String>();
-    private final List<JComboBox<String>> stockTypeSelectors = new ArrayList<JComboBox<String>>();
     private final List<String[]> auditEvents = new ArrayList<String[]>();
 
     private Main(AccountRepository accounts, BankRepository banks, ItemRepository items, ChallanRepository challans, VoucherRepository vouchers, StockMovementRepository stockMovements, CompanyProfileRepository companyProfile, UserAccountRepository users, ChequeRepository cheques, AutoCloseable persistence, Path databasePath) {
@@ -148,11 +146,6 @@ public final class Main {
         this.users = users;
         this.cheques = cheques;
         this.inventory = new InventoryService(items, stockMovements);
-        stockTypes.put("REG", "Regular");
-        stockTypes.put("SER", "Service");
-        if (persistence instanceof SQLiteOfficeData) {
-            for (String[] row : ((SQLiteOfficeData) persistence).stockTypes()) stockTypes.put(row[0], row[1]);
-        }
     }
 
     public static void main(String[] args) {
@@ -260,7 +253,6 @@ public final class Main {
         add("Bank", bankScreen());
         add("Cheque Detail", chequeScreen());
         add("Item Opening Balances", openingBalancesScreen());
-        add("Stock Types", stockTypesScreen());
         add("Voucher", voucherScreen("Voucher"));
         add("Journal Voucher", voucherScreen("Journal Voucher"));
         add("Purchase Challan", challanScreen("Purchase Challan"));
@@ -298,7 +290,6 @@ public final class Main {
         add("Item Ledger", reportScreen("Item Ledger"));
         add("Party Item Detail", reportScreen("Party Item Detail"));
         add("PC Profit Report", reportScreen("PC Profit Report"));
-        add("Type Wise Item Report", reportScreen("Type Wise Item Report"));
         add("OS Cheques", reportScreen("OS Cheques"));
         add("Party Activity Report", reportScreen("Party Activity Report"));
         add("Help", helpScreen());
@@ -341,7 +332,7 @@ public final class Main {
         addMenuItem(masters, "Chart of Account");
         addMenuItem(masters, "Items");
         addMenuItem(masters, "Bank");
-        addMenuItem(masters, "Stock Types");
+        addMenuItem(masters);
         addMenuItem(transactions, "Cheque Detail");
         addMenuItem(transactions, "Item Opening Balances");
         addMenuItem(transactions, "Voucher");
@@ -382,7 +373,6 @@ public final class Main {
         addMenuItem(reports, "Item Ledger");
         addMenuItem(reports, "Party Item Detail");
         addMenuItem(reports, "PC Profit Report");
-        addMenuItem(reports, "Type Wise Item Report");
         addMenuItem(reports, "OS Cheques");
         addMenuItem(reports, "Party Activity Report");
         addMenuItem(security, "User Rights");
@@ -965,12 +955,9 @@ public final class Main {
         JPanel panel = page("Items");
         JPanel form = titled("Item Details");
         JTextField[] fields = addEditableFields(form, new String[] {"Item Code", "Description", "Unit", "Sale Rate", "Purchase Rate"});
-        JComboBox<String> stockType = stockTypeSelector();
-        addGrid(form, new JLabel("Stock Type"), 0, 5, 1, 1, 0, 0);
-        addGrid(form, stockType, 1, 5, 1, 1, 0, 0);
         fields[0].setText(nextItemCode());
         lockGeneratedId(fields[0]);
-        final DefaultTableModel model = new DefaultTableModel(new Object[0][6], new String[] {"Item Code", "Description", "Unit", "Sale Rate", "Purchase Rate", "Stock Type"});
+        final DefaultTableModel model = new DefaultTableModel(new Object[0][5], new String[] {"Item Code", "Description", "Unit", "Sale Rate", "Purchase Rate"});
         for (Item item : items.findAll()) model.addRow(itemRow(item));
         JTable itemTable = new JTable(model);
         itemTable.setRowHeight(26);
@@ -980,14 +967,12 @@ public final class Main {
             if (row < 0) return;
             selectedItemCode[0] = String.valueOf(model.getValueAt(row, 0));
             for (int i = 0; i < fields.length; i++) fields[i].setText(String.valueOf(model.getValueAt(row, i)));
-            selectStockType(stockType, String.valueOf(model.getValueAt(row, 5)));
         });
         JButton newItem = new OfficeButton("New Item");
         newItem.addActionListener(e -> {
             selectedItemCode[0] = null;
             for (JTextField field : fields) field.setText("");
             fields[0].setText(nextItemCode());
-            stockType.setSelectedIndex(0);
             itemTable.clearSelection();
             status.setText("  New item entry");
         });
@@ -997,13 +982,12 @@ public final class Main {
                 if (fields[0].getText().trim().isEmpty()) fields[0].setText(nextItemCode());
                 BigDecimal saleRate = decimalOrZero(fields[3].getText());
                 BigDecimal purchaseRate = decimalOrZero(fields[4].getText());
-                Item item = new Item(fields[0].getText(), fields[1].getText(), fields[2].getText(), saleRate, purchaseRate, selectedStockType(stockType.getSelectedItem()));
+                Item item = new Item(fields[0].getText(), fields[1].getText(), fields[2].getText(), saleRate, purchaseRate);
                 items.save(item);
                 audit("ITEM_SAVE", item.getCode());
                 model.addRow(itemRow(item));
                 for (JTextField field : fields) field.setText("");
-                stockType.setSelectedIndex(0);
-                selectedItemCode[0] = null;
+                    selectedItemCode[0] = null;
                 status.setText("  Item saved and available to purchase/sale screens");
             } catch (NumberFormatException error) {
                 status.setText("  Item rates must be numbers");
@@ -1016,11 +1000,11 @@ public final class Main {
             try {
                 BigDecimal saleRate = decimalOrZero(fields[3].getText());
                 BigDecimal purchaseRate = decimalOrZero(fields[4].getText());
-                Item item = new Item(fields[0].getText(), fields[1].getText(), fields[2].getText(), saleRate, purchaseRate, selectedStockType(stockType.getSelectedItem()));
+                Item item = new Item(fields[0].getText(), fields[1].getText(), fields[2].getText(), saleRate, purchaseRate);
                 items.update(item);
                 audit("ITEM_UPDATE", item.getCode());
                 int row = itemTable.getSelectedRow();
-                if (row >= 0) for (int i = 0; i < 6; i++) model.setValueAt(itemRow(item)[i], row, i);
+                if (row >= 0) for (int i = 0; i < 5; i++) model.setValueAt(itemRow(item)[i], row, i);
                 status.setText("  Item updated");
             } catch (NumberFormatException error) {
                 status.setText("  Item rates must be numbers");
@@ -1038,8 +1022,7 @@ public final class Main {
                 audit("ITEM_DELETE", code);
                 if (row >= 0) model.removeRow(row);
                 for (JTextField field : fields) field.setText("");
-                stockType.setSelectedIndex(0);
-                selectedItemCode[0] = null;
+                    selectedItemCode[0] = null;
                 status.setText("  Item deleted");
             } catch (IllegalArgumentException error) {
                 status.setText("  Cannot delete item: " + error.getMessage());
@@ -1234,7 +1217,7 @@ public final class Main {
     }
 
     private Object[] itemRow(Item item) {
-        return new Object[] {item.getCode(), item.getDescription(), item.getUnit(), item.getSaleRate(), item.getPurchaseRate(), item.getStockType()};
+        return new Object[] {item.getCode(), item.getDescription(), item.getUnit(), item.getSaleRate(), item.getPurchaseRate()};
     }
 
     private Object[] bankRow(Bank bank) {
@@ -1317,37 +1300,6 @@ public final class Main {
         JPanel tablePanel = new JPanel(new BorderLayout());
         tablePanel.add(new JScrollPane(table), BorderLayout.CENTER);
         addFormAndTable(panel, form, tablePanel);
-        return panel;
-    }
-
-    private JPanel stockTypesScreen() {
-        JPanel panel = page("Stock Types");
-        JPanel form = titled("Stock Type");
-        JTextField code = new JTextField(12);
-        JTextField description = new JTextField(20);
-        addGrid(form, new JLabel("Stock Type Code"), 0, 0, 1, 1, 0, 0); addGrid(form, code, 1, 0, 1, 1, 0, 0);
-        addGrid(form, new JLabel("Description"), 0, 1, 1, 1, 0, 0); addGrid(form, description, 1, 1, 1, 1, 0, 0);
-        final DefaultTableModel model = new DefaultTableModel(new Object[0][2], new String[] {"Stock Type Code", "Description"});
-        for (Map.Entry<String, String> entry : stockTypes.entrySet()) model.addRow(new Object[] {entry.getKey(), entry.getValue()});
-        JTable table = new JTable(model);
-        JButton save = new OfficeButton("Save Stock Type");
-        save.addActionListener(e -> {
-            try {
-                String key = code.getText().trim();
-                String name = description.getText().trim();
-                if (key.isEmpty() || name.isEmpty()) throw new IllegalArgumentException("Code and description are required");
-                if (stockTypes.containsKey(key)) throw new IllegalArgumentException("Stock type code already exists: " + key);
-                if (persistence instanceof SQLiteOfficeData) ((SQLiteOfficeData) persistence).saveStockType(key, name);
-                stockTypes.put(key, name);
-                model.addRow(new Object[] {key, name});
-                refreshStockTypeSelectors();
-                audit("STOCK_TYPE_SAVE", key);
-                code.setText(""); description.setText("");
-                status.setText("  Stock type " + key + " saved and available in Items");
-            } catch (IllegalArgumentException error) { status.setText("  Cannot save stock type: " + error.getMessage()); }
-        });
-        addGrid(form, save, 0, 2, 2, 1, 0, 0);
-        addFormAndTable(panel, form, new JScrollPane(table));
         return panel;
     }
 
@@ -1728,7 +1680,6 @@ public final class Main {
         for (JComboBox<String> selector : accountSelectors) fillAccountSelector(selector);
         for (JComboBox<String> selector : partySelectors) fillPartySelector(selector);
         for (JComboBox<String> selector : itemSelectors) fillItemSelector(selector);
-        for (JComboBox<String> selector : stockTypeSelectors) fillStockTypeSelector(selector);
         for (JComboBox<String> selector : locationSelectors) fillLocationSelector(selector);
         refreshBankSelector();
     }
@@ -1745,38 +1696,6 @@ public final class Main {
         String text = String.valueOf(value);
         int separator = text.indexOf(" - ");
         return separator < 0 ? text.trim() : text.substring(0, separator).trim();
-    }
-
-    private JComboBox<String> stockTypeSelector() {
-        JComboBox<String> selector = new JComboBox<String>();
-        stockTypeSelectors.add(selector);
-        fillStockTypeSelector(selector);
-        return selector;
-    }
-
-    private void fillStockTypeSelector(JComboBox<String> selector) {
-        Object selected = selector.getSelectedItem();
-        selector.removeAllItems();
-        for (Map.Entry<String, String> entry : stockTypes.entrySet()) selector.addItem(entry.getKey() + " - " + entry.getValue());
-        for (Item item : items.findAll()) {
-            boolean present = false;
-            for (int i = 0; i < selector.getItemCount(); i++) if (selectedStockType(selector.getItemAt(i)).equals(item.getStockType())) present = true;
-            if (!present && !stockTypes.containsKey(item.getStockType())) selector.addItem(item.getStockType() + " - Existing item type");
-        }
-        if (selected != null) selector.setSelectedItem(selected);
-    }
-
-    private void refreshStockTypeSelectors() {
-        for (JComboBox<String> selector : stockTypeSelectors) fillStockTypeSelector(selector);
-    }
-
-    private void selectStockType(JComboBox<String> selector, String code) {
-        for (int i = 0; i < selector.getItemCount(); i++) {
-            if (code.equals(selectedStockType(selector.getItemAt(i)))) {
-                selector.setSelectedIndex(i);
-                return;
-            }
-        }
     }
 
     private JComboBox<String> locationSelector(boolean allowNew) {
@@ -1802,13 +1721,6 @@ public final class Main {
     private String selectedText(JComboBox<String> selector) {
         Object value = selector.isEditable() ? selector.getEditor().getItem() : selector.getSelectedItem();
         return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    private String selectedStockType(Object value) {
-        if (value == null) return "REG";
-        String text = String.valueOf(value);
-        int separator = text.indexOf(" - ");
-        return separator < 0 ? text.trim() : text.substring(0, separator).trim();
     }
 
     private JPanel transferScreen() {
@@ -2293,7 +2205,6 @@ public final class Main {
         if ("PC Profit Report".equals(title)) return new String[] {"Date", "Party", "Purchase", "Sale", "Gross Profit", "Margin"};
         if ("Company Profitability Report".equals(title)) return new String[] {"Date", "Purchase", "Sale", "Gross Profit", "Margin"};
         if ("Item Profitability Report".equals(title)) return new String[] {"Item", "Purchase", "Sale", "Gross Profit", "Margin"};
-        if ("Type Wise Item Report".equals(title)) return new String[] {"Stock Type", "Item", "Quantity", "Value", "Average Rate"};
         if ("OS Cheques".equals(title)) return new String[] {"Cheque Number", "Cheque Date", "Party", "Bank", "Amount", "Days Outstanding"};
         if ("Party Activity Report".equals(title)) return new String[] {"Date", "Party", "Activity", "Reference", "Debit", "Credit", "Balance"};
         if ("Trial Balance".equals(title)) return new String[] {"Account", "Debit", "Credit", "Balance"};
@@ -2793,7 +2704,7 @@ public final class Main {
         java.io.File folder = chooser.getSelectedFile();
         try {
             writeCsvFile(folder.toPath().resolve("accounts.csv"), new String[] {"Account Code", "Description", "Parent Code"}, accountRows());
-            writeCsvFile(folder.toPath().resolve("items.csv"), new String[] {"Item Code", "Description", "Unit", "Sale Rate", "Purchase Rate", "Stock Type"}, itemRows());
+            writeCsvFile(folder.toPath().resolve("items.csv"), new String[] {"Item Code", "Description", "Unit", "Sale Rate", "Purchase Rate"}, itemRows());
             writeCsvFile(folder.toPath().resolve("banks.csv"), new String[] {"Bank Code", "Bank Name", "Account Number", "Opening Balance", "Address", "Phone"}, bankRows());
             writeCsvFile(folder.toPath().resolve("challans.csv"), new String[] {"Type", "Number", "Date", "Party", "Location", "Item Code", "Quantity", "Rate", "Amount"}, challanRows());
             writeCsvFile(folder.toPath().resolve("vouchers.csv"), new String[] {"Number", "Date", "Narration", "Reference", "Account Code", "Debit", "Credit"}, voucherRows());
@@ -2827,7 +2738,7 @@ public final class Main {
 
     private List<Object[]> itemRows() {
         List<Object[]> rows = new ArrayList<Object[]>();
-        for (Item value : items.findAll()) rows.add(new Object[] {value.getCode(), value.getDescription(), value.getUnit(), value.getSaleRate(), value.getPurchaseRate(), value.getStockType()});
+        for (Item value : items.findAll()) rows.add(new Object[] {value.getCode(), value.getDescription(), value.getUnit(), value.getSaleRate(), value.getPurchaseRate()});
         return rows;
     }
 

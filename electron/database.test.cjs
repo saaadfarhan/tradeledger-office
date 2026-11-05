@@ -15,7 +15,11 @@ test('stale account edits merge separate fields and reject overlapping changes',
   store.saveAccount(original)
   store.saveAccount({ ...original, description: 'Cash account', __baseline: original })
   store.saveAccount({ ...original, openingBalance: 100, __baseline: original })
-  assert.deepEqual(store.listAccounts()[0], { ...original, description: 'Cash account', openingBalance: 100 })
+  assert.deepEqual(store.listAccounts().find((account) => account.code === 'CASH'), {
+    ...original, description: 'Cash account', openingBalance: 100,
+    openingBalanceSide: 'DEBIT', accountType: 'UNCLASSIFIED', phoneNo: '',
+    ntnNumber: '', mobileNo: '', gstNo: '', address: '', partyType: '', cashBank: '',
+  })
   assert.throws(
     () => store.saveAccount({ ...original, description: 'Petty cash', __baseline: original }),
     /newer changes from another user.*description/i,
@@ -28,7 +32,7 @@ test('stale challan, voucher, and cheque edits preserve separate fields and reje
   t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
   store.saveAccount({ code: 'PARTY', description: 'Party' })
   store.saveAccount({ code: 'CASH', description: 'Cash' })
-  store.saveItem({ code: 'ITEM', description: 'Item', unit: 'each', purchaseRate: 2, saleRate: 3, stockType: 'REG' })
+  store.saveItem({ code: 'ITEM', description: 'Item', unit: 'each', purchaseRate: 2, saleRate: 3 })
   store.saveLocation('Main')
   store.saveBank({ code: 'BANK', name: 'Office Bank' })
 
@@ -74,7 +78,7 @@ test('SQLite office store persists master data and posts stock atomically', (t) 
   store.saveAccount({ code: 'P-1', description: 'Party', openingBalance: 0 })
   store.saveAccount({ code: 'C-1', description: 'Customer', parentCode: 'P-1', openingBalance: 10 })
   assert.throws(() => store.saveAccount({ code: 'P-1', description: 'Party', parentCode: 'C-1', openingBalance: 0 }), /descendants/)
-  store.saveItem({ code: 'I-1', description: 'Test item', unit: 'box', purchaseRate: 4, saleRate: 6, stockType: 'REG' })
+  store.saveItem({ code: 'I-1', description: 'Test item', unit: 'box', purchaseRate: 4, saleRate: 6 })
   store.saveLocation('Main')
 
   store.postChallan({ number: 'PUR-1', type: 'PURCHASE', date: '2026-10-19', party: 'C-1', location: 'Main', lines: [{ itemCode: 'I-1', quantity: 5 }] })
@@ -84,12 +88,12 @@ test('SQLite office store persists master data and posts stock atomically', (t) 
 
   store.postChallan({ number: 'SAL-1', type: 'SALE', date: '2026-10-19', party: 'C-1', location: 'Main', lines: [{ itemCode: 'I-1', quantity: 2 }] })
   assert.equal(store.getStock('I-1', 'Main'), 3)
-  assert.equal(store.getDashboard().stockQuantity, 3)
+  assert.equal(store.getDashboard().stockedItems, 1)
   const overviewOnly = store.getDashboard(['Overview', 'Manual'])
   assert.equal(overviewOnly.counts.accounts, null, 'overview-only users do not receive account totals')
   assert.equal(overviewOnly.counts.purchasesToday, null, 'overview-only users do not receive purchase totals')
   assert.equal(overviewOnly.recent.length, 0, 'overview-only users do not receive challan details')
-  assert.equal(overviewOnly.stockQuantity, null, 'overview-only users do not receive stock totals')
+  assert.equal(overviewOnly.stockedItems, null, 'overview-only users do not receive stock totals')
   const salesView = store.getDashboard(['Overview', 'Sale Challans'])
   assert.ok(salesView.recent.every((row) => row.type === 'SALE'), 'sale operators only receive sale challans')
   assert.equal(store.listItems()[0].code, 'I-1')
@@ -110,7 +114,7 @@ test('SQLite store refuses purchase deletion that would make remaining stock neg
   const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))
   t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
   store.saveAccount({ code: 'P', description: 'Party' })
-  store.saveItem({ code: 'I', description: 'Item', unit: 'pc', purchaseRate: 1, saleRate: 2, stockType: 'REG' })
+  store.saveItem({ code: 'I', description: 'Item', unit: 'pc', purchaseRate: 1, saleRate: 2 })
   store.saveLocation('Main')
   store.postChallan({ number: 'P-1', type: 'PURCHASE', date: '2026-10-19', party: 'P', location: 'Main', lines: [{ itemCode: 'I', quantity: 2 }] })
   store.postChallan({ number: 'S-1', type: 'SALE', date: '2026-10-19', party: 'P', location: 'Main', lines: [{ itemCode: 'I', quantity: 1 }] })
@@ -127,7 +131,6 @@ test('SQLite store rejects impossible dates and protects referenced parent accou
   store.saveAccount({ code: 'C', description: 'Child', parentCode: 'P' })
   store.saveLocation('Main')
   assert.throws(() => store.deleteAccount('P'), /child accounts/)
-  assert.throws(() => store.saveItem({ code: 'BAD', description: 'Bad stock type', unit: 'pc', purchaseRate: 1, saleRate: 1, stockType: 'missing' }), /stock type/)
   assert.throws(() => store.postChallan({ number: 'BAD', type: 'PURCHASE', date: '2026-02-31', party: 'C', location: 'Main', lines: [{ itemCode: 'missing', quantity: 1 }] }), /real date/)
 })
 
@@ -162,7 +165,7 @@ test('database tools create a restorable backup, portable export, and integrity 
 
   const exported = store.exportData()
   assert.equal(exported.format, 'purchase-sale-office-data')
-  assert.equal(exported.data.accounts[0].code, 'CASH')
+  assert.ok(exported.data.accounts.some((account) => account.code === 'CASH'))
   assert.equal(JSON.stringify(exported).includes('password_hash'), false, 'business export must not contain credential hashes')
 
   const result = await store.backupTo(backup)
@@ -174,12 +177,12 @@ test('database tools create a restorable backup, portable export, and integrity 
   restored.close()
 })
 
-test('opening stock, stock types, and paired location transfers persist with safe validation', (t) => {
+test('opening stock and paired location transfers persist with safe validation', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-inventory-'))
   const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))
   t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
   store.saveAccount({ code: 'P', description: 'Party' })
-  store.saveItem({ code: 'I', description: 'Inventory item', unit: 'box', purchaseRate: 12, saleRate: 15, stockType: 'REG' })
+  store.saveItem({ code: 'I', description: 'Inventory item', unit: 'box', purchaseRate: 12, saleRate: 15 })
   store.saveLocation('Main')
   store.saveLocation('Shop')
 
@@ -198,13 +201,6 @@ test('opening stock, stock types, and paired location transfers persist with saf
   assert.equal(transfers.length, 2, 'transfer creates a matching outbound and inbound movement')
   assert.equal(transfers.reduce((sum, movement) => sum + movement.quantity, 0), 0, 'transfer preserves total stock')
 
-  store.saveStockType({ code: 'FRZ', description: 'Frozen' })
-  store.saveItem({ code: 'I-FRZ', description: 'Frozen item', unit: 'box', purchaseRate: 12, saleRate: 15, stockType: 'FRZ' })
-  assert.throws(() => store.deleteStockType('FRZ'), /assigned to items/)
-  store.saveStockType({ code: 'REG', description: 'Regular stock' })
-  assert.throws(() => store.deleteStockType('REG'), /Built-in/)
-  assert.throws(() => store.deleteStockType('SER'), /Built-in/)
-  assert.throws(() => store.saveItem({ code: 'I', description: 'Inventory item', unit: 'box', purchaseRate: 12, saleRate: 15, stockType: 'NOPE' }), /stock type/)
 })
 
 test('SQLite voucher workflows validate balance, update atomically, and retain entry type', (t) => {
@@ -240,6 +236,30 @@ test('SQLite upgrade preserves Java-era vouchers without the Electron voucher ty
   assert.equal(store.listVouchers()[0].type, 'VOUCHER')
   assert.equal(store.listVouchers()[0].narration, 'Legacy Java voucher')
   assert.equal(store.nextId('voucher'), 'VCH-00013')
+})
+
+test('database upgrade removes legacy stock types while preserving catalog items', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-stock-type-upgrade-'))
+  const file = path.join(directory, 'office.sqlite')
+  const legacy = new Database(file)
+  legacy.exec(`
+    CREATE TABLE items (code TEXT PRIMARY KEY, description TEXT NOT NULL, unit TEXT NOT NULL,
+      sale_rate NUMERIC NOT NULL, purchase_rate NUMERIC NOT NULL, stock_type TEXT NOT NULL);
+    CREATE TABLE stock_types (code TEXT PRIMARY KEY, description TEXT NOT NULL);
+    INSERT INTO items VALUES ('ITEM-1', 'Preserved item', 'box', 20, 10, 'REG');
+    INSERT INTO stock_types VALUES ('REG', 'Regular');
+  `)
+  legacy.close()
+  const store = openOfficeDatabase(file)
+  t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+
+  const columns = new Database(file, { readonly: true })
+  assert.equal(columns.pragma('table_info(items)').some((column) => column.name === 'stock_type'), false)
+  assert.equal(columns.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stock_types'").get(), undefined)
+  columns.close()
+  assert.equal(store.listItems()[0].code, 'ITEM-1')
+  assert.equal(store.listItems()[0].description, 'Preserved item')
+  assert.equal('stockType' in store.listItems()[0], false)
 })
 
 test('local user setup, sign-in, page rights and audit actors persist', (t) => {
