@@ -45,6 +45,7 @@ import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import { formatMoney as money } from "@/lib/formatters";
 import { PersistentSelectField } from "@/components/forms/Fields";
 import { FormSelect } from "@/components/forms/Fields";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function MasterPage({
   title,
@@ -61,21 +62,16 @@ export function MasterPage({
 }) {
   return (
     <section className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-        </div>
-        <div className="relative w-full sm:w-72">
+      <PageHeader title={title} description={description} actions={<div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            data-operator-search
             className="pl-9"
             placeholder="Search records"
             value={search}
             onChange={(event) => onSearch(event.target.value)}
           />
-        </div>
-      </div>
+        </div>} />
       {children}
     </section>
   );
@@ -655,13 +651,14 @@ export function MasterTable({
     Record<string, unknown> | undefined
   >();
   const [saving, setSaving] = useState(false);
+  const [lastSelections, setLastSelections] = useState<Record<string, string>>({});
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
   const startCreate = async () => {
     try {
       setEditIndex(null);
       setBaseline(undefined);
       const initial = Object.fromEntries(
-        fields.map((field) => [field.key, field.defaultValue ?? ""]),
+        fields.map((field) => [field.key, lastSelections[field.key] ?? field.defaultValue ?? ""]),
       );
       const idField = fields.find((field) => field.auto);
       if (idField) {
@@ -695,6 +692,10 @@ export function MasterTable({
     setSaving(true);
     try {
       await onSave(values, baseline);
+      if (editIndex === null) {
+        const reusable = Object.fromEntries(fields.filter((field) => ["select", "persisted-select", "location"].includes(field.type ?? "")).map((field) => [field.key, values[field.key] ?? ""]));
+        setLastSelections((current) => ({ ...current, ...reusable }));
+      }
       toast.success(
         `${recordName[0].toUpperCase()}${recordName.slice(1)} ${editIndex === null ? "added" : "updated"}`,
       );
@@ -717,7 +718,7 @@ export function MasterTable({
               {rows.length} record{rows.length === 1 ? "" : "s"}
             </CardDescription>
           </div>
-          <Button onClick={() => void startCreate()}>
+          <Button data-operator-new onClick={() => void startCreate()}>
             <Plus data-icon="inline-start" />
             {createLabel}
           </Button>
@@ -970,7 +971,7 @@ export function MasterTable({
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void submit()} disabled={saving}>
+            <Button data-operator-save onClick={() => void submit()} disabled={saving}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </DialogFooter>

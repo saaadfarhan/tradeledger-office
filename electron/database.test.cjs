@@ -6,6 +6,18 @@ const test = require('node:test')
 const Database = require('better-sqlite3')
 const { openOfficeDatabase } = require('./database.cjs')
 
+test('account codes follow the numeric hierarchy', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-account-codes-'))
+  const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))
+  t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+
+  store.saveAccount({ description: 'Cash and banks', parentCode: '1' })
+  store.saveAccount({ description: 'Cash', parentCode: '11' })
+  const accounts = store.listAccounts()
+  assert.ok(accounts.some((account) => account.code === '11' && account.description === 'Cash and banks'))
+  assert.ok(accounts.some((account) => account.code === '1101' && account.description === 'Cash'))
+})
+
 test('stale account edits merge separate fields and reject overlapping changes', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-conflict-'))
   const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))

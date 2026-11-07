@@ -24,6 +24,8 @@ import {
 } from "@/lib/preferences";
 import { APP_KEYBINDINGS } from "@/lib/app-keybindings";
 import { Field } from "@/components/forms/Fields";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Kbd } from "@/components/ui/kbd";
 
 export function SettingsPage({
   darkMode,
@@ -46,13 +48,7 @@ export function SettingsPage({
   };
   return (
     <section className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Preferences for this Windows or Linux user account. These do not
-          change office records.
-        </p>
-      </div>
+      <PageHeader title="Settings" description="Preferences for this computer and signed-in account. These do not change office records." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Appearance and tables</CardTitle>
@@ -125,13 +121,7 @@ export function ManualPage() {
     "rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground";
   return (
     <section className="mx-auto max-w-5xl space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">User Manual</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Follow these workflows in order. Each section explains what to enter
-          and what should happen next.
-        </p>
-      </div>
+      <PageHeader title="User Manual" description="Guidance for common office workflows, record entry, and reports." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">1. Set up the office</CardTitle>
@@ -160,7 +150,7 @@ export function ManualPage() {
             </li>
             <li>
               Use the toolbar’s Home button to return to the overview. Press{" "}
-              <kbd className="rounded border px-1.5 py-0.5">Ctrl+K</kbd> to find
+              <Kbd>Ctrl+K</Kbd> to find
               a page or command.
             </li>
           </ol>
@@ -208,9 +198,8 @@ export function ManualPage() {
           </ol>
           <p className={note}>
             Opening quantity uses the item’s current purchase rate for
-            valuation. It does not import old transactions or balances.
-            Referenced accounts and items may be blocked from deletion while
-            dependent records exist.
+            valuation. Referenced accounts and items may be blocked from
+            deletion while dependent records exist.
           </p>
         </CardContent>
       </Card>
@@ -269,8 +258,7 @@ export function ManualPage() {
         <CardContent className="space-y-3 text-sm">
           <ol className={steps}>
             <li>
-              Use <strong>Voucher</strong> or <strong>Journal Voucher</strong>{" "}
-              for a double-entry record. Add at least two account lines; each
+              Use <strong>Journal Voucher</strong> for a double-entry record. Add at least two account lines; each
               line has a debit or credit, and total debits must equal total
               credits.
             </li>
@@ -280,8 +268,7 @@ export function ManualPage() {
               account, enter the date and amount, review, then save.
             </li>
             <li>
-              Use <strong>Search Payment</strong> to find saved payment and
-              receipt records by available text and date filters.
+              Use the search and filters on <strong>Payment / Receipt</strong> to find saved entries. Use global search when looking across different record types.
             </li>
             <li>
               In <strong>Cheque Detail</strong>, choose a bank and party, then
@@ -372,15 +359,14 @@ export function ManualPage() {
             Keep the server on a trusted private network or approved VPN. Do not
             expose it to the public internet. The app does not encrypt the live
             database file; protect the host account and enable device
-            encryption. This is a pilot and is not a validated replacement for
-            legacy books or official accounting.
+            encryption. This is a pilot and is not validated for official
+            accounting.
           </p>
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">
         Navigation: Back/Forward follows pages visited this session;{" "}
-        <kbd className="rounded border px-1.5 py-0.5">Alt+←</kbd> and{" "}
-        <kbd className="rounded border px-1.5 py-0.5">Alt+→</kbd> do the same.
+        <Kbd>Alt+←</Kbd> and <Kbd>Alt+→</Kbd> do the same.
         Theme and table-size settings are local to this computer.
       </p>
     </section>
@@ -390,15 +376,7 @@ export function ManualPage() {
 export function KeybindingsPage() {
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          Keyboard shortcuts
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Application commands work throughout the signed-in workspace. On
-          macOS, Ctrl means Command.
-        </p>
-      </div>
+      <PageHeader title="Keyboard shortcuts" description="Use keyboard commands to move around and complete common tasks. On macOS, Ctrl means Command." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -415,22 +393,23 @@ export function KeybindingsPage() {
               className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
             >
               <span className="text-sm">{description}</span>
-              <kbd className="rounded-md border bg-muted px-2 py-1 font-mono text-xs text-foreground">
+              <Kbd className="h-6 px-2 font-mono text-foreground">
                 {keys}
-              </kbd>
+              </Kbd>
             </div>
           ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <span className="text-sm">Add a line in challan, voucher, or journal voucher editors</span>
+            <Kbd className="h-6 px-2 font-mono text-foreground">Alt+Enter</Kbd>
+          </div>
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">
-        Right-click anywhere in the app for navigation and refresh actions.
-        Shortcuts are intercepted by the application, so Ctrl+R reloads this app
-        rather than the browser shell.
+        Ctrl+K opens global search and commands. Ctrl+F only focuses a search or
+        filter on the current page, when one is available. Record commands only
+        act on pages that support them. Right-click in the app for navigation
+        and refresh actions. Ctrl+R reloads the application.
       </p>
     </section>
   );
-}
-
-export function ReferenceManualPage() {
-  return <ManualPage />;
 }

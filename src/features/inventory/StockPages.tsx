@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import type { Item, OpeningBalance, StockMovement } from "@/types";
 import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { formatMoney as money } from "@/lib/formatters";
 import { FormSelect, Field, SearchableItemSelect } from "@/components/forms/Fields";
 
@@ -76,15 +77,7 @@ export function LocationsPage({
   }
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Locations</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Add and manage the shared locations used by inventory and challan
-            entries.
-          </p>
-        </div>
-        <Button
+      <PageHeader title="Locations" description="Add and manage the locations used by inventory and challan entries." actions={<Button data-operator-new
           onClick={() => {
             setName("");
             setEditorOpen(true);
@@ -92,8 +85,7 @@ export function LocationsPage({
         >
           <Plus data-icon="inline-start" />
           Add location
-        </Button>
-      </div>
+        </Button>} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Locations</CardTitle>
@@ -209,7 +201,7 @@ export function LocationsPage({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving || !name.trim()}>
+              <Button data-operator-save type="submit" disabled={saving || !name.trim()}>
                 <Plus data-icon="inline-start" />
                 {saving ? "Saving…" : "Add location"}
               </Button>
@@ -242,6 +234,7 @@ export function OpeningBalancesPage({
   const [saving, setSaving] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const selectedItem = items.find((item) => item.code === itemCode);
+  useEffect(() => { if (!editorOpen) return; const frame = window.requestAnimationFrame(() => document.getElementById("opening-item")?.focus()); return () => window.cancelAnimationFrame(frame); }, [editorOpen]);
   useEffect(() => {
     if (location && !locations.includes(location)) setLocation("");
   }, [location, locations]);
@@ -265,20 +258,10 @@ export function OpeningBalancesPage({
   }
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Item Opening Balances
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Record starting stock as an auditable inventory movement.
-          </p>
-        </div>
-        <Button onClick={() => setEditorOpen(true)} disabled={!items.length}>
+      <PageHeader title="Item Opening Balances" description="Record starting stock as an auditable inventory movement." actions={<Button data-operator-new onClick={() => setEditorOpen(true)} disabled={!items.length}>
           <Plus data-icon="inline-start" />
           Add opening balance
-        </Button>
-      </div>
+        </Button>} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -409,7 +392,7 @@ export function OpeningBalancesPage({
               >
                 Cancel
               </Button>
-              <Button
+              <Button data-operator-save
                 type="submit"
                 disabled={saving || !items.length || !itemCode || !location}
               >
@@ -446,6 +429,7 @@ export function TransferPage({
   const [available, setAvailable] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  useEffect(() => { if (!editorOpen) return; const frame = window.requestAnimationFrame(() => document.getElementById("transfer-item")?.focus()); return () => window.cancelAnimationFrame(frame); }, [editorOpen]);
   useEffect(() => {
     let active = true;
     if (itemCode && fromLocation)
@@ -477,8 +461,6 @@ export function TransferPage({
       });
       setQuantity("");
       setItemCode("");
-      setFromLocation("");
-      setToLocation("");
       setEditorOpen(false);
     } catch (error) {
       toast.error(
@@ -490,22 +472,13 @@ export function TransferPage({
   }
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Transfer</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Move available quantity between locations without changing total
-            office stock.
-          </p>
-        </div>
-        <Button
+      <PageHeader title="Stock Transfer" description="Move available quantity between locations without changing total office stock." actions={<Button data-operator-new
           onClick={() => setEditorOpen(true)}
           disabled={!items.length || locations.length < 2}
         >
           <Plus data-icon="inline-start" />
           Transfer stock
-        </Button>
-      </div>
+        </Button>} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Recent transfer movements</CardTitle>
@@ -634,7 +607,7 @@ export function TransferPage({
               >
                 Cancel
               </Button>
-              <Button
+              <Button data-operator-save
                 type="submit"
                 disabled={
                   saving ||

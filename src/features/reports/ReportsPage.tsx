@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, FileSpreadsheet, FileText, Printer } from "lucide-react";
+import { Check, ChevronsUpDown, Download, FileSpreadsheet, FileText, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,9 +36,12 @@ import {
   requestPrint,
 } from "@/features/printing/PrintDocument";
 import { REPORT_NAMES } from "@/lib/report-names";
-import { Field, FormSelect } from "@/components/forms/Fields";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Field } from "@/components/forms/Fields";
 import { formatMoney as money } from "@/lib/formatters";
 import { createXlsx } from "@/lib/xlsx";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 type ReportRow = Record<string, string | number>;
 
@@ -50,6 +53,13 @@ const AS_OF_REPORTS = [
   "Receivables",
   "Payables",
 ];
+const REPORT_GROUPS = [
+  { label: "Inventory", reports: ["Transit", "Stock Ledger", "Stock Summary", "Stock Report Date Wise", "Stock Report Item Wise", "Item Ledger"] },
+  { label: "Sales & Purchases", reports: ["Company Profitability Report", "Item Profitability Report", "Purchase Register", "Sales Register", "Purchase Report Date Wise", "PC Profit Report", "Party Item Detail", "Party Activity Report"] },
+  { label: "Financial & Ledgers", reports: ["Trial Balance", "Trial Balance Date Wise", "General Ledger", "Ledger", "Balance Sheet", "Profit & Loss", "Party Ledger", "Cash Book", "Bank Book"] },
+  { label: "Receivables", reports: ["Receivables", "Payables"] },
+  { label: "Cheques", reports: ["Post Dated Cheques", "Returned Cheques", "OS Cheques"] },
+] as const;
 function karachiToday() {
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Karachi",
@@ -265,6 +275,7 @@ export function ReportsPage({
   canOpenAccounts: boolean;
   canOpenBanks: boolean;
 }) {
+  const [reportPickerOpen, setReportPickerOpen] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [filter, setFilter] = useState("");
@@ -367,7 +378,7 @@ export function ReportsPage({
           ? "Quantity on hand is calculated from recorded stock movements through the selected date. Values are not shown because movement rates mix purchase and sale prices."
           : reportName === "Bank Book"
             ? "Includes cleared cheque entries posted to each bank’s linked ledger account, plus other entries on accounts whose descriptions contain “bank”. Bank master opening balances remain separate from chart-of-account balances."
-            : "Calculated from records currently stored in this application only. It does not include external legacy transactions.";
+            : "Calculated from records currently stored in this application only.";
   const exportCsv = () => {
     const safeCell = (value: string | number) => {
       const text = String(value);
@@ -421,15 +432,7 @@ export function ReportsPage({
   };
   return (
     <section className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          {reportName || "Reports"}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Reports from the menu bar are available from the Reports menu or
-          selector.
-        </p>
-      </div>
+      <PageHeader title={reportName || "Reports"} description="Choose a report, set its period and filters, then review or export the results." />
       <div className="grid items-start gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]">
         <Card>
           <CardHeader>
@@ -445,16 +448,30 @@ export function ReportsPage({
                 className="w-full"
               />
               <Field label="Report" id="report-name">
-                <FormSelect
-                  id="report-name"
-                  value={reportName}
-                  onChange={onReportChange}
-                  options={REPORT_NAMES.map((name) => ({
-                    value: name,
-                    label: name,
-                  }))}
-                  placeholder="Select report"
-                />
+                <Popover open={reportPickerOpen} onOpenChange={setReportPickerOpen}>
+                  <PopoverTrigger render={<Button id="report-name" type="button" variant="outline" aria-label="Choose a report" aria-expanded={reportPickerOpen} className="w-full justify-between font-normal" />}>
+                    <span className={reportName ? "truncate" : "truncate text-muted-foreground"}>{reportName || "Choose a report…"}</span>
+                    <ChevronsUpDown data-icon="inline-end" className="opacity-50" />
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-0">
+                    <Command>
+                      <CommandInput placeholder="Search reports…" />
+                      <CommandList className="max-h-80">
+                        <CommandEmpty>No reports found.</CommandEmpty>
+                        {REPORT_GROUPS.map((group) => (
+                          <CommandGroup key={group.label} heading={group.label}>
+                            {group.reports.filter((name) => REPORT_NAMES.includes(name)).map((name) => (
+                              <CommandItem key={name} value={name} onSelect={() => { onReportChange(name); setReportPickerOpen(false); }}>
+                                <Check className={reportName === name ? "opacity-100" : "opacity-0"} />
+                                {name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        ))}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </Field>
               {!isAsOfReport && (
                 <Field label="From date" id="report-from">

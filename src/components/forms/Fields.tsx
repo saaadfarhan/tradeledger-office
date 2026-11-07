@@ -66,7 +66,7 @@ export function SearchableItemSelect({ id, value, onChange, items, placeholder =
   )
 }
 
-export function FormSelect({ id, value, onChange, options, placeholder, disabled = false, emptyHint, clearable = true }: { id?: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }>; placeholder: string; disabled?: boolean; emptyHint?: string; clearable?: boolean }) {
+export function FormSelect({ id, value, onChange, options, placeholder, disabled = false, emptyHint, clearable = true, ariaLabel }: { id?: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }>; placeholder: string; disabled?: boolean; emptyHint?: string; clearable?: boolean; ariaLabel?: string }) {
   const selectableOptions = options.filter((option) => option.value !== '')
   const hasChoices = selectableOptions.length > 0
   const isDisabled = disabled || !hasChoices
@@ -78,7 +78,7 @@ export function FormSelect({ id, value, onChange, options, placeholder, disabled
     <div className="grid gap-1.5">
       <div className="relative">
         <Select items={selectItems} value={value || null} onValueChange={(next) => onChange(next === clearValue ? '' : next ?? '')} disabled={isDisabled}>
-          <SelectTrigger id={id} className={hasClearOption ? 'h-9 w-full pr-9' : 'h-9 w-full'}>
+          <SelectTrigger id={id} aria-label={ariaLabel} className={hasClearOption ? 'h-9 w-full pr-9' : 'h-9 w-full'}>
             <SelectValue placeholder={hasChoices ? placeholder : 'No options available'} />
           </SelectTrigger>
           <SelectContent>
@@ -168,7 +168,7 @@ export function PersistentSelectField({ label, id, value, onChange, options, onA
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={!draft.trim() || saving}>{saving ? 'Saving…' : `Save ${label.toLowerCase()}`}</Button>
+            <Button data-operator-save type="submit" disabled={!draft.trim() || saving}>{saving ? 'Saving…' : `Save ${label.toLowerCase()}`}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

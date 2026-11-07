@@ -11,17 +11,17 @@ export type Page =
   | "purchase"
   | "sale"
   | "cheques"
-  | "voucher"
   | "journal"
   | "payment"
-  | "paymentSearch"
+  | "paymentView"
   | "reports"
   | "users"
   | "audit"
   | "database"
   | "settings"
   | "manual"
-  | "keybindings";
+  | "keybindings"
+  | "search";
 
 export const pageNames: Record<Page, string> = {
   home: "Home",
@@ -36,10 +36,9 @@ export const pageNames: Record<Page, string> = {
   purchase: "Purchase Challans",
   sale: "Sale Challans",
   cheques: "Cheque Detail",
-  voucher: "Voucher",
   journal: "Journal Voucher",
   payment: "Payment / Receipt",
-  paymentSearch: "Search Payment",
+  paymentView: "Payment / Receipt (view only)",
   reports: "Reports",
   users: "User Rights",
   audit: "Audit Log",
@@ -47,53 +46,8 @@ export const pageNames: Record<Page, string> = {
   settings: "Settings",
   manual: "Manual",
   keybindings: "Keybindings",
+  search: "Search Results",
 };
-
-export const reportGroups = [
-  {
-    label: "Inventory",
-    reports: [
-      "Transit",
-      "Stock Ledger",
-      "Stock Summary",
-      "Stock Report Date Wise",
-      "Stock Report Item Wise",
-      "Item Ledger",
-    ],
-  },
-  {
-    label: "Sales & Purchases",
-    reports: [
-      "Company Profitability Report",
-      "Item Profitability Report",
-      "Purchase Register",
-      "Sales Register",
-      "Purchase Report Date Wise",
-      "PC Profit Report",
-      "Party Item Detail",
-      "Party Activity Report",
-    ],
-  },
-  {
-    label: "Financial & Ledgers",
-    reports: [
-      "Trial Balance",
-      "Trial Balance Date Wise",
-      "General Ledger",
-      "Ledger",
-      "Balance Sheet",
-      "Profit & Loss",
-      "Party Ledger",
-      "Cash Book",
-      "Bank Book",
-    ],
-  },
-  { label: "Receivables", reports: ["Receivables", "Payables"] },
-  {
-    label: "Cheques",
-    reports: ["Post Dated Cheques", "Returned Cheques", "OS Cheques"],
-  },
-] as const;
 
 export const permissionPages: Page[] = [
   "home",
@@ -107,10 +61,9 @@ export const permissionPages: Page[] = [
   "cheques",
   "purchase",
   "sale",
-  "voucher",
   "journal",
-  "paymentSearch",
   "payment",
+  "paymentView",
   "reports",
   "users",
   "audit",

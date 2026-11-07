@@ -581,9 +581,9 @@ function registerIpc() {
       default: throw new Error('Unsupported application menu action')
     }
   })
-  registerHandler('ids:next', (entity) => officeStore.nextId(String(entity)), (entity) => ({ account: 'Chart of Accounts', item: 'Items', bank: 'Banks', purchaseChallan: 'Purchase Challans', saleChallan: 'Sale Challans', cheque: 'Cheque Detail', transfer: 'Transfer', voucher: ['Voucher', 'Journal Voucher', 'Payment / Receipt'] })[entity] || null)
+  registerHandler('ids:next', (entity) => officeStore.nextId(String(entity)), (entity) => ({ account: 'Chart of Accounts', item: 'Items', bank: 'Banks', purchaseChallan: 'Purchase Challans', saleChallan: 'Sale Challans', cheque: 'Cheque Detail', transfer: 'Transfer', voucher: ['Journal Voucher', 'Payment / Receipt'] })[entity] || null)
   registerHandler('dashboard:get', (_payload, session) => officeStore.getDashboard(session.permissions), 'Overview')
-  registerHandler('company:get', () => officeStore.getCompanyProfile(), ['Company Profile', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Payment / Receipt', 'Reports'])
+  registerHandler('company:get', () => officeStore.getCompanyProfile(), ['Company Profile', 'Purchase Challans', 'Sale Challans', 'Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
   registerHandler('company:save', (value) => officeStore.saveCompanyProfile(value), 'User Rights')
   registerHandler('company:logo', async () => {
     const logoPath = officeStore.getCompanyProfile().logoPath
@@ -594,8 +594,8 @@ function registerIpc() {
       if (image.length > 4 * 1024 * 1024) return null
       return `data:${mime};base64,${image.toString('base64')}`
     } catch { return null }
-  }, ['Company Profile', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Payment / Receipt', 'Reports'])
-  registerHandler('accounts:list', () => officeStore.listAccounts(), ['Chart of Accounts', 'Purchase Challans', 'Sale Challans', 'Banks', 'Cheque Detail', 'Voucher', 'Journal Voucher', 'Payment / Receipt', 'Search Payment', 'Reports'])
+  }, ['Company Profile', 'Purchase Challans', 'Sale Challans', 'Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
+  registerHandler('accounts:list', () => officeStore.listAccounts(), ['Chart of Accounts', 'Purchase Challans', 'Sale Challans', 'Banks', 'Cheque Detail', 'Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
   registerHandler('accounts:save', (value) => officeStore.saveAccount(value), 'Chart of Accounts')
   registerHandler('accounts:remove', (code) => officeStore.deleteAccount(String(code)), 'Chart of Accounts')
   registerHandler('items:list', () => officeStore.listItems(), ['Items', 'Purchase Challans', 'Sale Challans', 'Reports'])
@@ -618,24 +618,23 @@ function registerIpc() {
   registerHandler('challans:post', (value) => officeStore.postChallan(value), (value) => value?.type === 'SALE' ? 'Sale Challans' : 'Purchase Challans')
   registerHandler('challans:update', (value) => officeStore.updateChallan(value), (value) => value?.type === 'SALE' ? 'Sale Challans' : 'Purchase Challans')
   registerHandler('challans:remove', (number) => officeStore.deleteChallan(String(number)), (number) => officeStore.getChallanType(String(number)) === 'SALE' ? 'Sale Challans' : 'Purchase Challans')
-  registerHandler('cheques:list', () => officeStore.listCheques(), ['Cheque Detail', 'Reports'])
+  registerHandler('cheques:list', () => officeStore.listCheques(), ['Cheque Detail', 'Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
   registerHandler('cheques:save', (value) => officeStore.saveCheque(value), 'Cheque Detail')
   registerHandler('cheques:remove', (number) => officeStore.deleteCheque(String(number)), 'Cheque Detail')
   registerHandler('vouchers:list', () => {
     if (activeSession.permissions.includes('Reports')) return officeStore.listVouchers()
     const types = []
-    if (activeSession.permissions.includes('Voucher')) types.push('VOUCHER')
-    if (activeSession.permissions.includes('Journal Voucher')) types.push('JOURNAL VOUCHER')
-    if (activeSession.permissions.includes('Payment / Receipt') || activeSession.permissions.includes('Search Payment')) types.push('PAYMENT', 'RECEIPT')
+    if (activeSession.permissions.includes('Journal Voucher')) types.push('VOUCHER', 'JOURNAL VOUCHER')
+    if (activeSession.permissions.includes('Payment / Receipt') || activeSession.permissions.includes('Payment / Receipt (view only)')) types.push('PAYMENT', 'RECEIPT')
     return officeStore.listVouchers(types)
-  }, ['Voucher', 'Journal Voucher', 'Search Payment', 'Payment / Receipt', 'Reports'])
-  registerHandler('vouchers:save', (value) => officeStore.saveVoucher(value), (value) => ({ VOUCHER: 'Voucher', 'JOURNAL VOUCHER': 'Journal Voucher', PAYMENT: 'Payment / Receipt', RECEIPT: 'Payment / Receipt' })[String(value?.type || 'VOUCHER').toUpperCase()] || 'Voucher')
-  registerHandler('vouchers:remove', (number) => officeStore.deleteVoucher(String(number)), (number) => ({ VOUCHER: 'Voucher', 'JOURNAL VOUCHER': 'Journal Voucher', PAYMENT: 'Payment / Receipt', RECEIPT: 'Payment / Receipt' })[officeStore.getVoucherType(String(number))] || null)
+  }, ['Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
+  registerHandler('vouchers:save', (value) => officeStore.saveVoucher(value), (value) => ({ VOUCHER: 'Journal Voucher', 'JOURNAL VOUCHER': 'Journal Voucher', PAYMENT: 'Payment / Receipt', RECEIPT: 'Payment / Receipt' })[String(value?.type || 'JOURNAL VOUCHER').toUpperCase()] || 'Journal Voucher')
+  registerHandler('vouchers:remove', (number) => officeStore.deleteVoucher(String(number)), (number) => ({ VOUCHER: 'Journal Voucher', 'JOURNAL VOUCHER': 'Journal Voucher', PAYMENT: 'Payment / Receipt', RECEIPT: 'Payment / Receipt' })[officeStore.getVoucherType(String(number))] || null)
   registerHandler('stock:locations', () => officeStore.listLocations(), ['Items', 'Purchase Challans', 'Sale Challans', 'Item Opening Balances', 'Transfer', 'Reports', 'Locations'])
   registerHandler('locations:save', (value) => officeStore.saveLocation(value), 'Locations')
   registerHandler('locations:remove', (name) => officeStore.deleteLocation(String(name)), 'Locations')
   registerHandler('stock:quantity', ({ itemCode, location }) => officeStore.getStock(String(itemCode), String(location)), ['Items', 'Transfer'])
-  registerHandler('stock:movements', () => officeStore.listStockMovements(), ['Reports', 'Transfer', 'Item Opening Balances', 'Locations'])
+  registerHandler('stock:movements', () => officeStore.listStockMovements(), ['Reports', 'Transfer', 'Item Opening Balances', 'Locations', 'Items', 'Purchase Challans', 'Sale Challans'])
   registerHandler('stock:openings', () => officeStore.listOpeningBalances(), 'Item Opening Balances')
   registerHandler('stock:opening:add', (value) => officeStore.addOpeningBalance(value), ['Item Opening Balances', 'Items'])
   registerHandler('stock:transfer', (value) => officeStore.transferStock(value), 'Transfer')

@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/layout/PageHeader";
 import {
   Card,
   CardContent,
@@ -116,14 +117,7 @@ export function DatabaseToolsPage({
 
   return (
     <section className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          Database Tools
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Protect and inspect this computer’s local office database.
-        </p>
-      </div>
+      <PageHeader title="Database Tools" description="Back up, verify, and manage the office database on this computer." />
       {connection.mode === "remote" ? (
         <Card>
           <CardHeader>

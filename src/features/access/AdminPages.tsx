@@ -39,6 +39,7 @@ import { ConfirmActionDialog } from "@/components/feedback/ConfirmActionDialog";
 import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import { pageNames, permissionPages } from "@/app/navigation";
 import { Field } from "@/components/forms/Fields";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function UserRightsPage({
   currentUsername,
@@ -273,16 +274,7 @@ export function UserRightsPage({
     );
   return (
     <section className="flex min-w-0 flex-col gap-4 sm:gap-4">
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            User Rights
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Manage office accounts and the pages each account may open.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex">
+      <PageHeader title="User Rights" description="Manage office accounts and the pages each account may open." actions={<div className="grid grid-cols-2 gap-2 sm:flex">
           <Button
             className="w-full sm:w-auto"
             variant="outline"
@@ -292,12 +284,11 @@ export function UserRightsPage({
             <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>
-          <Button className="w-full sm:w-auto" size="sm" onClick={newUser}>
+          <Button data-operator-new={activeTab === "users" ? "" : undefined} className="w-full sm:w-auto" size="sm" onClick={newUser}>
             <Plus data-icon="inline-start" />
             New user
           </Button>
-        </div>
-      </div>
+        </div>} />
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
         <TabsList className="grid w-full grid-cols-3 sm:w-fit">
           <TabsTrigger value="users">Users</TabsTrigger>
@@ -420,7 +411,7 @@ export function UserRightsPage({
                   Presets are shared with everyone connecting to this office.
                 </CardDescription>
               </div>
-              <Button size="sm" variant="outline" onClick={() => editPreset()}>
+              <Button data-operator-new={activeTab === "presets" ? "" : undefined} size="sm" variant="outline" onClick={() => editPreset()}>
                 <Plus data-icon="inline-start" />
                 Add preset
               </Button>
@@ -838,7 +829,7 @@ export function UserRightsPage({
                 <span className="hidden sm:block" />
               )}
               <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
-                <Button
+                <Button data-operator-save
                   className="w-full"
                   type="button"
                   variant="outline"
@@ -952,7 +943,7 @@ export function UserRightsPage({
               >
                 Cancel
               </Button>
-              <Button
+              <Button data-operator-save
                 type="submit"
                 disabled={!presetName.trim() || !presetPermissions.length}
               >
@@ -1002,14 +993,7 @@ export function AuditLogPage({
   );
   return (
     <section className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Audit Log</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Recent sign-ins and data changes recorded in this local database.
-          </p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader title="Audit Log" description="Recent sign-ins and data changes recorded in this office database." actions={<div className="flex w-full gap-2 sm:w-auto">
           <Input
             className="w-56"
             placeholder="Filter audit entries"
@@ -1020,10 +1004,9 @@ export function AuditLogPage({
             <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>
-        </div>
-      </div>
+        </div>} />
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-4 sm:p-5">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>

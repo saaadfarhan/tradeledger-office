@@ -21,6 +21,7 @@ import {
   Landmark,
   LayoutDashboard,
   LogOut,
+  Menu,
   Moon,
   Package,
   PanelLeftClose,
@@ -42,8 +43,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Field } from "@/components/forms/Fields";
 import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,6 +67,7 @@ import {
 import {
   Command,
   CommandDialog,
+  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -111,7 +115,7 @@ import {
 } from "@/features/inventory/StockPages";
 import {
   KeybindingsPage,
-  ReferenceManualPage,
+  ManualPage,
   SettingsPage,
 } from "@/features/settings/SettingsPages";
 import {
@@ -134,12 +138,6 @@ import { pageNames } from "@/app/navigation";
 const DatabaseToolsPage = lazy(() =>
   import("@/features/database/DatabaseToolsPage").then(
     ({ DatabaseToolsPage: Page }) => ({ default: Page }),
-  ),
-);
-
-const PaymentSearchPage = lazy(() =>
-  import("@/features/payments/PaymentSearchPage").then(
-    ({ PaymentSearchPage: Page }) => ({ default: Page }),
   ),
 );
 
@@ -184,10 +182,8 @@ const navigationGroups: Array<{
     pages: [
       "purchase",
       "sale",
-      "voucher",
       "journal",
       "payment",
-      "paymentSearch",
       "cheques",
     ],
   },
@@ -206,9 +202,23 @@ const navigationGroups: Array<{
     ],
   },
 ];
+const reportNavigationIndex = navigationGroups.findIndex((group) => group.title === "Reports");
+const navigationGroupsBeforeReports = navigationGroups.slice(0, reportNavigationIndex);
+const navigationGroupsAfterReports = navigationGroups.slice(reportNavigationIndex + 1);
 
 const sidebarHeadingClassName =
   "h-12 rounded-xl border border-transparent px-3 py-3 text-sm font-semibold tracking-normal text-foreground transition-colors hover:bg-muted dark:hover:bg-muted/50 hover:no-underline focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/(\d),(?=\d)/g, "$1")
+    .replace(/\.00\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
 
 function searchParts(query: string) {
   const tokens =
@@ -220,17 +230,17 @@ function searchParts(query: string) {
   for (const token of tokens) {
     const qualifier = token.match(/^(type|in):(.+)$/i);
     if (!qualifier) {
-      terms.push(token.toLowerCase());
+      terms.push(normalizeSearchText(token));
       continue;
     }
     if (qualifier[1].toLowerCase() === "type")
       kinds.push(qualifier[2].toLowerCase());
     else fields.push(qualifier[2].toLowerCase());
   }
-  return { kinds, fields, terms, plain: terms.join(" ") };
+  return { kinds, fields, terms };
 }
 
-function matchesRecord(record: SearchRecord, query: string) {
+function recordSearchScore(record: SearchRecord, query: string) {
   const parsed = searchParts(query);
   const kindAliases: Record<string, string[]> = {
     account: ["account"],
@@ -240,31 +250,56 @@ function matchesRecord(record: SearchRecord, query: string) {
     purchase: ["purchase-challan"],
     sale: ["sale-challan"],
     cheque: ["cheque"],
-    voucher: ["voucher"],
-    journal: ["journal-voucher"],
+    journal: ["voucher", "journal-voucher"],
     payment: ["payment", "receipt"],
     receipt: ["receipt"],
     opening: ["opening-balance"],
     transfer: ["transfer"],
+    "purchase-challan": ["purchase-challan"],
+    "sale-challan": ["sale-challan"],
+    "journal-voucher": ["journal-voucher"],
+    "opening-balance": ["opening-balance"],
   };
   if (
     parsed.kinds.length &&
     !parsed.kinds.some((kind) =>
       (kindAliases[kind] ?? [kind]).includes(record.kind),
     )
-  )
-    return false;
+  ) return null;
+  const fieldAliases: Record<string, string[]> = {
+    party: ["party"],
+    date: ["date"],
+    number: ["number", "checknumber", "reference"],
+    account: ["account", "accountcode", "parent"],
+    bank: ["name", "code", "accountnumber"],
+    item: ["item", "itemcode", "description", "code"],
+    status: ["status"],
+    location: ["location"],
+    amount: ["amount", "total", "quantity"],
+  };
   const fieldEntries = Object.entries(record.fields);
   const scopedEntries = parsed.fields.length
-    ? fieldEntries.filter(([field]) =>
-        parsed.fields.includes(field.toLowerCase()),
-      )
+    ? fieldEntries.filter(([field]) => parsed.fields.some((requested) =>
+        (fieldAliases[requested] ?? [requested]).includes(field.toLowerCase().replaceAll(/[^a-z0-9]/g, "")),
+      ))
     : fieldEntries;
-  if (parsed.fields.length && !scopedEntries.length) return false;
-  const haystack = scopedEntries
-    .map(([, value]) => value.toLowerCase())
+  if (parsed.fields.length && !scopedEntries.length) return null;
+  const haystack = [
+    ...scopedEntries.map(([, value]) => value),
+    ...(!parsed.fields.length ? [record.title, record.detail] : []),
+  ]
+    .map(normalizeSearchText)
     .join(" ");
-  return parsed.terms.every((term) => haystack.includes(term));
+  if (!parsed.terms.every((term) => haystack.includes(term))) return null;
+
+  const title = normalizeSearchText(record.title);
+  const detail = normalizeSearchText(record.detail);
+  if (!parsed.terms.length) return 3;
+  if (parsed.terms.every((term) => title === term)) return 0;
+  if (parsed.terms.every((term) => title.startsWith(term))) return 1;
+  if (parsed.terms.every((term) => title.includes(term))) return 2;
+  if (parsed.terms.every((term) => detail.includes(term))) return 3;
+  return 4;
 }
 
 export function App() {
@@ -292,11 +327,14 @@ export function App() {
   const [historyIndex, setHistoryIndex] = useState(0);
   const [openNavGroup, setOpenNavGroup] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(
     () => window.localStorage.getItem("purchase-sale-theme") === "dark",
   );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
+  const [searchResultsQuery, setSearchResultsQuery] = useState("");
+  const [searchResultKind, setSearchResultKind] = useState("all");
   const [confirmAction, setConfirmAction] = useState<"logout" | "quit" | null>(
     null,
   );
@@ -383,7 +421,7 @@ export function App() {
 
   useEffect(() => {
     const currentGroup = navigationGroups.find((group) =>
-      group.pages.includes(page),
+      group.title !== "Reports" && group.pages.includes(page),
     );
     if (currentGroup) setOpenNavGroup(currentGroup.title);
   }, [page]);
@@ -392,15 +430,17 @@ export function App() {
     async (currentSession = session) => {
       setBusy(true);
       try {
-        const can = (name: Page) =>
-          Boolean(currentSession?.permissions.includes(pageNames[name]));
+        const can = (name: Page) => Boolean(currentSession && (
+          currentSession.permissions.includes(pageNames[name]) ||
+          (name === "payment" && currentSession.permissions.includes(pageNames.paymentView))
+        ));
         const canPrint = [
           "company",
           "purchase",
           "sale",
-          "voucher",
           "journal",
           "payment",
+          "paymentView",
           "reports",
         ].some((name) => can(name as Page));
         const [
@@ -424,10 +464,8 @@ export function App() {
           can("purchase") ||
           can("sale") ||
           can("reports") ||
-          can("voucher") ||
           can("journal") ||
-          can("payment") ||
-          can("paymentSearch")
+          can("payment")
             ? window.office.accounts.list()
             : [],
           can("items") || can("purchase") || can("sale") || can("reports")
@@ -444,7 +482,7 @@ export function App() {
                   ? window.office.challans.list("SALE")
                   : Promise.resolve([]),
               ]).then((groups) => groups.flat()),
-          can("cheques") || can("reports") ? window.office.cheques.list() : [],
+          can("cheques") || can("journal") || can("payment") || can("reports") ? window.office.cheques.list() : [],
           can("items") ||
           can("purchase") ||
           can("sale") ||
@@ -456,16 +494,16 @@ export function App() {
             : [],
           can("opening") ? window.office.stock.openings() : [],
           can("reports") ||
+          can("purchase") ||
+          can("sale") ||
           can("transfer") ||
           can("opening") ||
           can("locations")
             ? window.office.stock.movements()
             : [],
           can("reports") ||
-          can("voucher") ||
           can("journal") ||
-          can("payment") ||
-          can("paymentSearch")
+          can("payment")
             ? window.office.vouchers.list()
             : [],
         ]);
@@ -564,15 +602,39 @@ export function App() {
   }, [page, session, adminToolsUnlockedUntil]);
 
   useEffect(() => {
+    const overlaySelector = '[aria-modal="true"], [data-slot="dialog-content"], [data-slot="sheet-content"]';
+    const openOverlays = () => [...document.querySelectorAll<HTMLElement>(overlaySelector)].filter((element) => element.getClientRects().length > 0);
     const onKeyDown = (event: KeyboardEvent) => {
       const action = matchAppKeybinding(event);
       if (!action) return;
+      if (action === "focusSearch") {
+        if (openOverlays().length) return;
+        const searchInput = [...document.querySelectorAll<HTMLInputElement>("input[data-operator-search]")]
+          .find((input) => input.getClientRects().length > 0 && !input.disabled);
+        if (!searchInput) return;
+        event.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+        return;
+      }
       event.preventDefault();
       switch (action) {
         case "search":
           setPaletteQuery("");
           setPaletteOpen(true);
           break;
+        case "newRecord": {
+          if (openOverlays().length) break;
+          const createButton = [...document.querySelectorAll<HTMLButtonElement>("button[data-operator-new]")].find((button) => button.getClientRects().length > 0 && !button.disabled);
+          createButton?.click();
+          break;
+        }
+        case "saveRecord": {
+          const dialog = document.activeElement?.closest<HTMLElement>(overlaySelector) ?? openOverlays().at(-1);
+          const saveButton = [...document.querySelectorAll<HTMLButtonElement>("button[data-operator-save]")].find((button) => button.getClientRects().length > 0 && !button.disabled && (!dialog || dialog.contains(button)));
+          saveButton?.click();
+          break;
+        }
         case "back":
           goBack();
           break;
@@ -646,11 +708,13 @@ export function App() {
     }
     if (
       !["settings", "keybindings"].includes(nextPage) &&
+      nextPage !== "search" &&
       !(nextPage === "users" ||
       nextPage === "database" ||
       nextPage === "company"
         ? isAdministrator
-        : session?.permissions.includes(pageNames[nextPage]))
+        : session?.permissions.includes(pageNames[nextPage]) ||
+          (nextPage === "payment" && session?.permissions.includes(pageNames.paymentView)))
     ) {
       toast.error("Your account does not have access to that page");
       return;
@@ -785,9 +849,7 @@ export function App() {
     },
     { id: "transfer" as const, label: "Transfer", icon: ArrowLeftRight },
     { id: "cheques" as const, label: "Cheque Detail", icon: WalletCards },
-    { id: "voucher" as const, label: "Voucher", icon: FileClock },
     { id: "journal" as const, label: "Journal Voucher", icon: FileClock },
-    { id: "paymentSearch" as const, label: "Search Payment", icon: Search },
     { id: "payment" as const, label: "Payment / Receipt", icon: WalletCards },
     {
       id: "purchase" as const,
@@ -840,7 +902,9 @@ export function App() {
   const permittedNav = nav.filter(({ id }) =>
     id === "users" || id === "database" || id === "company"
       ? isAdministrator
-      : id === "settings" ||
+      : id === "payment"
+        ? session.permissions.includes(pageNames.payment) || session.permissions.includes(pageNames.paymentView)
+        : id === "settings" ||
         id === "keybindings" ||
         session.permissions.includes(pageNames[id]),
   );
@@ -908,19 +972,15 @@ export function App() {
     })),
     ...vouchers.map((row) => {
       const page: Page =
-        row.type === "JOURNAL VOUCHER"
+        row.type === "JOURNAL VOUCHER" || row.type === "VOUCHER"
           ? "journal"
-          : row.type === "VOUCHER"
-            ? "voucher"
-            : session.permissions.includes(pageNames.paymentSearch)
-              ? "paymentSearch"
-              : "payment";
+          : "payment";
       return {
         page,
         title: `${row.number} — ${row.narration || row.type}`,
         detail: `${row.type} · ${row.date}`,
         kind:
-          row.type === "JOURNAL VOUCHER"
+          row.type === "JOURNAL VOUCHER" || row.type === "VOUCHER"
             ? "journal-voucher"
             : row.type.toLowerCase(),
         fields: {
@@ -931,6 +991,8 @@ export function App() {
           narration: row.narration,
           account: row.lines.map((line) => line.accountCode).join(" "),
           amount: row.lines.map((line) => line.debit + line.credit).join(" "),
+          chequeNumber: [row.chequeNumber ?? "", ...row.lines.map((line) => line.chequeNumber ?? "")].join(" "),
+          paymentMethod: row.lines.map((line) => line.paymentMethod ?? "").join(" "),
         },
       };
     }),
@@ -964,13 +1026,51 @@ export function App() {
         },
       })),
   ].filter((row) => session.permissions.includes(pageNames[row.page]));
-  const matchedRecords =
-    paletteQuery.trim().length >= 2
+  const allMatchedRecords =
+    paletteQuery.trim().length > 0
       ? searchableRecords
-          .filter((row) => matchesRecord(row, paletteQuery))
-          .slice(0, 30)
+          .map((row, index) => ({ row, index, score: recordSearchScore(row, paletteQuery) }))
+          .filter((match): match is { row: SearchRecord; index: number; score: number } => match.score !== null)
+          .sort((a, b) => a.score - b.score || a.index - b.index)
+          .map(({ row }) => row)
       : [];
-  const searchText = searchParts(paletteQuery).plain;
+  const matchedRecords = allMatchedRecords.slice(0, 30);
+  const searchPageRecords = searchResultsQuery.trim()
+    ? searchableRecords
+        .map((row, index) => ({ row, index, score: recordSearchScore(row, searchResultsQuery) }))
+        .filter((match): match is { row: SearchRecord; index: number; score: number } => match.score !== null)
+        .sort((a, b) => a.score - b.score || a.index - b.index)
+        .map(({ row }) => row)
+    : [];
+  const searchResultGroups = [
+    { key: "accounts", label: "Accounts & banks", kinds: ["account", "bank"] },
+    { key: "items", label: "Items", kinds: ["item"] },
+    { key: "challans", label: "Challans", kinds: ["purchase-challan", "sale-challan"] },
+    { key: "vouchers", label: "Vouchers & payments", kinds: ["voucher", "journal-voucher", "payment", "receipt"] },
+    { key: "cheques", label: "Cheques", kinds: ["cheque"] },
+    { key: "stock", label: "Stock activity", kinds: ["opening-balance", "transfer"] },
+  ].map((group) => ({
+    ...group,
+    records: searchPageRecords.filter((record) => group.kinds.includes(record.kind)),
+  }));
+  const visibleSearchGroups = searchResultKind === "all"
+    ? searchResultGroups.filter((group) => group.records.length > 0)
+    : searchResultGroups.filter((group) => group.key === searchResultKind && group.records.length > 0);
+  const renderSearchResult = (record: SearchRecord) => (
+    <Button key={`${record.page}-${record.title}`} variant="ghost" className="h-auto w-full justify-start rounded-none px-4 py-3 text-left hover:bg-muted/60" onClick={() => navigate(record.page)}>
+      <Search className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-foreground">{record.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{record.detail}</span></span>
+      <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">{record.kind.replaceAll("-", " ")}</Badge>
+      <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+    </Button>
+  );
+  const parsedPaletteQuery = searchParts(paletteQuery);
+  const searchTerms = parsedPaletteQuery.terms;
+  const hasSearchQualifier = parsedPaletteQuery.kinds.length > 0 || parsedPaletteQuery.fields.length > 0;
+  const matchesPaletteText = (value: string) => {
+    const normalized = normalizeSearchText(value);
+    return searchTerms.length > 0 && searchTerms.every((term) => normalized.includes(term));
+  };
 
   const filteredItems = items.filter((row) =>
     `${row.code} ${row.description}`.toLowerCase().includes(query.toLowerCase()),
@@ -998,6 +1098,7 @@ export function App() {
       <ContextMenuTrigger className="block min-h-svh select-text">
         <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-background">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:gap-3 sm:px-5">
+            <Button className="md:hidden" variant="ghost" size="icon-sm" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu /></Button>
             <div className="flex min-w-0 shrink-0 items-center gap-2">
               {companyLogo && (
                 <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
@@ -1008,7 +1109,7 @@ export function App() {
                   />
                 </div>
               )}
-              <p className="max-w-36 truncate text-sm font-semibold leading-tight sm:max-w-48">
+              <p className="max-w-24 truncate text-xs font-semibold leading-tight sm:max-w-48 sm:text-sm">
                 {companyProfile?.name || "TradeLedger Office"}
               </p>
             </div>
@@ -1016,8 +1117,9 @@ export function App() {
               orientation="vertical"
               className="mx-1 h-5 data-vertical:self-center"
             />
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
               <Button
+                className="hidden sm:inline-flex"
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Back"
@@ -1028,6 +1130,7 @@ export function App() {
                 <ArrowLeft />
               </Button>
               <Button
+                className="hidden sm:inline-flex"
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Forward"
@@ -1065,6 +1168,7 @@ export function App() {
                 <RefreshCw className={busy ? "animate-spin" : ""} />
               </Button>
               <Button
+                className="hidden sm:inline-flex"
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Manual"
@@ -1074,6 +1178,7 @@ export function App() {
                 <BookOpen />
               </Button>
               <Button
+                className="hidden sm:inline-flex"
                 variant="ghost"
                 size="icon-sm"
                 aria-label="About"
@@ -1083,6 +1188,7 @@ export function App() {
                 <Building2 />
               </Button>
               <Button
+                className="hidden sm:inline-flex"
                 variant="ghost"
                 size="icon-sm"
                 aria-label={darkMode ? "Light theme" : "Dark theme"}
@@ -1109,6 +1215,42 @@ export function App() {
             </Button>
           </header>
           <div className="flex min-h-0 flex-1">
+            <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+              <SheetContent side="left" className="w-[min(19rem,88vw)] gap-0 p-0 md:hidden">
+                <SheetHeader className="border-b pr-12">
+                  <SheetTitle>{companyProfile?.name || "TradeLedger Office"}</SheetTitle>
+                  <SheetDescription>Navigate to a workspace</SheetDescription>
+                </SheetHeader>
+                <nav aria-label="Main navigation" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+                  <Button variant={page === "home" ? "secondary" : "ghost"} aria-current={page === "home" ? "page" : undefined} className="mb-2 h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { navigate("home"); setMobileNavOpen(false); }}><LayoutDashboard />Home</Button>
+                  <Accordion value={openNavGroup ? [openNavGroup] : []} onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}>
+                    {navigationGroupsBeforeReports.map((group) => {
+                      const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
+                      if (!entries.length) return null;
+                      return <AccordionItem key={group.title} value={group.title} className="border-border">
+                        <AccordionTrigger className={`${sidebarHeadingClassName} flex items-center gap-3`}><group.icon data-icon="inline-start" />{group.title}</AccordionTrigger>
+                        <AccordionContent className="pb-2 pt-1"><div className="flex flex-col gap-1 px-1">
+                          {entries.map(({ id, label, icon: Icon }) => <Button key={id} variant={page === id ? "secondary" : "ghost"} aria-current={page === id ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { setOpenNavGroup(group.title); navigate(id); setMobileNavOpen(false); }}><Icon />{label}</Button>)}
+                        </div></AccordionContent>
+                      </AccordionItem>;
+                    })}
+                  </Accordion>
+                  {permittedNav.some(({ id }) => id === "reports") && <Button variant={page === "reports" ? "secondary" : "ghost"} aria-current={page === "reports" ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { navigate("reports"); setMobileNavOpen(false); }}><FileClock />Reports</Button>}
+                  <Accordion value={openNavGroup ? [openNavGroup] : []} onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}>
+                    {navigationGroupsAfterReports.map((group) => {
+                      const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
+                      if (!entries.length) return null;
+                      return <AccordionItem key={group.title} value={group.title} className="border-border">
+                        <AccordionTrigger className={`${sidebarHeadingClassName} flex items-center gap-3`}><group.icon data-icon="inline-start" />{group.title}</AccordionTrigger>
+                        <AccordionContent className="pb-2 pt-1"><div className="flex flex-col gap-1 px-1">
+                          {entries.map(({ id, label, icon: Icon }) => <Button key={id} variant={page === id ? "secondary" : "ghost"} aria-current={page === id ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { setOpenNavGroup(group.title); navigate(id); setMobileNavOpen(false); }}><Icon />{label}</Button>)}
+                        </div></AccordionContent>
+                      </AccordionItem>;
+                    })}
+                  </Accordion>
+                </nav>
+              </SheetContent>
+            </Sheet>
             <aside
               aria-label="Main navigation"
               className={`hidden shrink-0 flex-col overflow-y-auto border-r bg-muted/20 p-3 transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-16 gap-2" : "w-60 p-4"}`}
@@ -1125,6 +1267,16 @@ export function App() {
                     <LayoutDashboard />
                   </Button>
                   {navigationGroups.map((group) => {
+                    if (group.title === "Reports") {
+                      return permittedNav.some(({ id }) => id === "reports") ? <Button
+                        key={group.title}
+                        variant={page === "reports" ? "secondary" : "ghost"}
+                        size="icon"
+                        aria-label="Reports"
+                        title="Reports"
+                        onClick={() => navigate("reports")}
+                      ><FileClock /></Button> : null;
+                    }
                     const hasVisiblePages = permittedNav.some(({ id }) =>
                       group.pages.includes(id),
                     );
@@ -1165,7 +1317,7 @@ export function App() {
                     value={openNavGroup ? [openNavGroup] : []}
                     onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}
                   >
-                    {navigationGroups.map((group) => {
+                    {navigationGroupsBeforeReports.map((group) => {
                       const entries = permittedNav.filter(({ id }) =>
                         group.pages.includes(id),
                       );
@@ -1188,6 +1340,7 @@ export function App() {
                                 <Button
                                   key={id}
                                   variant={page === id ? "secondary" : "ghost"}
+                                  aria-current={page === id ? "page" : undefined}
                                   className="h-11 justify-start gap-3 rounded-lg px-3 text-sm"
                                   onClick={() => {
                                     setOpenNavGroup(group.title);
@@ -1202,6 +1355,29 @@ export function App() {
                           </AccordionContent>
                         </AccordionItem>
                       );
+                    })}
+                  </Accordion>
+                  {permittedNav.some(({ id }) => id === "reports") && <div className="border-b border-border">
+                    <Button
+                      variant="ghost"
+                      aria-current={page === "reports" ? "page" : undefined}
+                      className={`${sidebarHeadingClassName} flex w-full items-center justify-start gap-3`}
+                      onClick={() => navigate("reports")}
+                    ><FileClock />Reports</Button>
+                  </div>}
+                  <Accordion
+                    value={openNavGroup ? [openNavGroup] : []}
+                    onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}
+                  >
+                    {navigationGroupsAfterReports.map((group) => {
+                      const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
+                      if (!entries.length) return null;
+                      return <AccordionItem key={group.title} value={group.title} className="border-border">
+                        <AccordionTrigger className={`${sidebarHeadingClassName} flex items-center gap-3`}><group.icon data-icon="inline-start" />{group.title}</AccordionTrigger>
+                        <AccordionContent className="pb-3 pt-2"><div className="flex flex-col gap-1 px-1">
+                          {entries.map(({ id, label, icon: Icon }) => <Button key={id} variant={page === id ? "secondary" : "ghost"} aria-current={page === id ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3 text-sm" onClick={() => { setOpenNavGroup(group.title); navigate(id); }}><Icon />{label}</Button>)}
+                        </div></AccordionContent>
+                      </AccordionItem>;
                     })}
                   </Accordion>
                 </>
@@ -1224,7 +1400,7 @@ export function App() {
                 </Button>
               </div>
             </aside>
-            <main className="app-workspace mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto p-5 sm:p-6 lg:p-8">
+            <main className="app-workspace mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto p-3 sm:p-5 lg:p-7">
               {page === "home" && (
                 <DashboardPage
                   dashboard={dashboard}
@@ -1236,6 +1412,39 @@ export function App() {
                   items={items}
                   challans={challans}
                 />
+              )}
+              {page === "search" && (
+                <section className="flex flex-col gap-4">
+                  <PageHeader
+                    title="Search results"
+                    description={searchResultsQuery ? `Matches for “${searchResultsQuery}”. Select a result to open its section.` : "Search across the records your account can access."}
+                    actions={<div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input data-operator-search className="pl-9" aria-label="Search all records" placeholder="Name, number, party, or filter" value={searchResultsQuery} onChange={(event) => { setSearchResultsQuery(event.target.value); setSearchResultKind("all"); }} /></div>}
+                  />
+                  {searchResultsQuery.trim() ? (
+                    <>
+                      <p className="text-sm text-muted-foreground">{searchPageRecords.length} {searchPageRecords.length === 1 ? "result" : "results"}</p>
+                      {searchPageRecords.length ? (
+                        <>
+                          <div className="flex flex-wrap gap-2 border-b border-border/70 pb-3" role="toolbar" aria-label="Filter results by type">
+                            <Button size="sm" variant={searchResultKind === "all" ? "secondary" : "outline"} aria-pressed={searchResultKind === "all"} onClick={() => setSearchResultKind("all")}>All <span className="ml-1 tabular-nums text-muted-foreground">{searchPageRecords.length}</span></Button>
+                            {searchResultGroups.map((group) => <Button key={group.key} size="sm" variant={searchResultKind === group.key ? "secondary" : "outline"} aria-pressed={searchResultKind === group.key} disabled={!group.records.length} onClick={() => setSearchResultKind(group.key)}>{group.label}<span className="ml-1 tabular-nums text-muted-foreground">{group.records.length}</span></Button>)}
+                          </div>
+                          <div className="flex flex-col gap-4">
+                            {visibleSearchGroups.map((group) => <section key={group.key} aria-labelledby={`search-group-${group.key}`} className="overflow-hidden rounded-xl border bg-card">
+                              <header className="flex items-center justify-between gap-3 border-b bg-muted/35 px-4 py-3"><h2 id={`search-group-${group.key}`} className="text-sm font-semibold">{group.label}</h2><Badge variant="secondary">{group.records.length}</Badge></header>
+                              <div className="divide-y">{group.records.map(renderSearchResult)}</div>
+                            </section>)}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-xl border bg-card px-5 py-10 text-center">
+                          <p className="font-medium">No matching records</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Try a shorter phrase, record number, or a field such as <code>in:party</code>.</p>
+                        </div>
+                      )}
+                    </>
+                  ) : <div className="rounded-xl border bg-card px-5 py-10 text-center text-sm text-muted-foreground">Enter a term above to search permitted records.</div>}
+                </section>
               )}
               {page === "database" && isAdministrator && adminToolsUnlocked && (
                 <Suspense fallback={<PageLoading />}>
@@ -1389,6 +1598,7 @@ export function App() {
                       row.type === (page === "purchase" ? "PURCHASE" : "SALE"),
                   )}
                   items={items}
+                  movements={stockMovements}
                   accounts={accounts}
                   locations={locations}
                   company={companyProfile}
@@ -1430,25 +1640,17 @@ export function App() {
                   }}
                 />
               )}
-              {(page === "voucher" ||
-                page === "journal" ||
-                page === "payment") && (
+              {(page === "journal" || page === "payment") && (
                 <Suspense fallback={<PageLoading />}>
                   <VoucherEntryPage
-                    type={
-                      page === "voucher"
-                        ? "VOUCHER"
-                        : page === "journal"
-                          ? "JOURNAL VOUCHER"
-                          : "PAYMENT"
-                    }
+                    type={page === "journal" ? "JOURNAL VOUCHER" : "PAYMENT"}
+                    readOnly={page === "payment" && !session.permissions.includes(pageNames.payment)}
                     accounts={accounts}
+                    cheques={cheques}
                     vouchers={vouchers.filter((row) =>
-                      page === "voucher"
-                        ? row.type === "VOUCHER"
-                        : page === "journal"
-                          ? row.type === "JOURNAL VOUCHER"
-                          : row.type === "PAYMENT" || row.type === "RECEIPT",
+                      page === "journal"
+                        ? row.type === "VOUCHER" || row.type === "JOURNAL VOUCHER"
+                        : row.type === "PAYMENT" || row.type === "RECEIPT",
                     )}
                     company={companyProfile}
                     logo={companyLogo}
@@ -1462,16 +1664,6 @@ export function App() {
                       await refresh();
                       toast.success("Voucher deleted");
                     }}
-                  />
-                </Suspense>
-              )}
-              {page === "paymentSearch" && (
-                <Suspense fallback={<PageLoading />}>
-                  <PaymentSearchPage
-                    vouchers={vouchers.filter(
-                      (row) => row.type === "PAYMENT" || row.type === "RECEIPT",
-                    )}
-                    accounts={accounts}
                   />
                 </Suspense>
               )}
@@ -1536,40 +1728,36 @@ export function App() {
               {page === "settings" && (
                 <SettingsPage darkMode={darkMode} onThemeChange={setDarkMode} />
               )}
-              {page === "manual" && <ReferenceManualPage />}
+              {page === "manual" && <ManualPage />}
               {page === "keybindings" && <KeybindingsPage />}
             </main>
           </div>
           <footer className="flex shrink-0 items-center justify-between px-2 text-xs text-muted-foreground">
             <span>Ready · Data stored on this computer</span>
-            <span>{dashboard?.today ?? today()}</span>
+            <span className="hidden sm:inline">{dashboard?.today ?? today()}</span>
           </footer>
           <CommandDialog
             open={paletteOpen}
             onOpenChange={setPaletteOpen}
             title="Navigation and global search"
-            description="Search permitted office records. Qualifiers: type:challan, type:cheque, in:party, in:date."
+            description="Search permitted pages and records. Try type:sale, in:party Junaid, or in:date 2026-11-07."
           >
             <Command value={undefined} shouldFilter={false}>
               <CommandInput
-                placeholder="Search records (e.g. type:challan in:party Acme)…"
+                placeholder="Try: 5245451 · in:party Junaid · type:sale"
                 value={paletteQuery}
                 onValueChange={setPaletteQuery}
               />
               <CommandList>
-                {permittedNav.filter(
-                  ({ label }) =>
-                    !searchText ||
-                    label.toLowerCase().includes(searchText.toLowerCase()),
+                {paletteQuery.trim() && <CommandEmpty>No matches. Try a name, record number, or a filter such as <span className="font-mono">in:party</span>.</CommandEmpty>}
+                {paletteQuery.trim() && <CommandGroup heading="Search"><CommandItem value={`all search results ${paletteQuery}`} onSelect={() => { setSearchResultsQuery(paletteQuery.trim()); setSearchResultKind("all"); navigate("search"); }}><Search />View all {allMatchedRecords.length} record results<CommandShortcut>Enter</CommandShortcut></CommandItem></CommandGroup>}
+                {!hasSearchQualifier && permittedNav.filter(
+                  ({ label }) => !paletteQuery.trim() || matchesPaletteText(label),
                 ).length > 0 && (
                   <CommandGroup heading="Pages">
                     {permittedNav
                       .filter(
-                        ({ label }) =>
-                          !searchText ||
-                          label
-                            .toLowerCase()
-                            .includes(searchText.toLowerCase()),
+                        ({ label }) => !paletteQuery.trim() || matchesPaletteText(label),
                       )
                       .map(({ id, label, icon: Icon }) => (
                         <CommandItem
@@ -1604,21 +1792,17 @@ export function App() {
                     </CommandGroup>
                   </>
                 )}
-                {isAllowed("reports") &&
+                {!hasSearchQualifier && isAllowed("reports") &&
                   REPORT_NAMES.filter(
                     (name) =>
-                      !searchText ||
-                      name.toLowerCase().includes(searchText.toLowerCase()),
+                      !paletteQuery.trim() || matchesPaletteText(name),
                   ).length > 0 && (
                     <>
                       <CommandSeparator />
                       <CommandGroup heading="Reports">
                         {REPORT_NAMES.filter(
                           (name) =>
-                            !searchText ||
-                            name
-                              .toLowerCase()
-                              .includes(searchText.toLowerCase()),
+                            !paletteQuery.trim() || matchesPaletteText(name),
                         ).map((name) => (
                           <CommandItem
                             key={`report-${name}`}
@@ -1636,33 +1820,33 @@ export function App() {
                       </CommandGroup>
                     </>
                   )}
-                <CommandSeparator />
+                {(!paletteQuery.trim() || (searchTerms.length > 0 && matchesPaletteText("purchase purchase challans buy sale sales challans sell database backup export verify tools refresh reload data home overview dashboard theme dark light appearance logout sign out"))) && <><CommandSeparator />
                 <CommandGroup heading="Common actions">
-                  <CommandItem
+                  {(!paletteQuery.trim() || matchesPaletteText("purchase purchase challans buy")) && <CommandItem
                     value="open purchase challans"
                     disabled={!isAllowed("purchase")}
                     onSelect={() => navigate("purchase")}
                   >
                     <ArrowDownToLine />
                     Open purchase challans
-                  </CommandItem>
-                  <CommandItem
+                  </CommandItem>}
+                  {(!paletteQuery.trim() || matchesPaletteText("sale sales challans sell")) && <CommandItem
                     value="open sale challans"
                     disabled={!isAllowed("sale")}
                     onSelect={() => navigate("sale")}
                   >
                     <ArrowUpFromLine />
                     Open sale challans
-                  </CommandItem>
-                  <CommandItem
+                  </CommandItem>}
+                  {(!paletteQuery.trim() || matchesPaletteText("database backup export verify tools")) && <CommandItem
                     value="database backup export verify tools"
                     disabled={!isAllowed("database")}
                     onSelect={() => navigate("database")}
                   >
                     <Database />
                     Database tools
-                  </CommandItem>
-                  <CommandItem
+                  </CommandItem>}
+                  {(!paletteQuery.trim() || matchesPaletteText("refresh reload data")) && <CommandItem
                     value="action refresh"
                     onSelect={() => {
                       setPaletteOpen(false);
@@ -1671,15 +1855,15 @@ export function App() {
                   >
                     <RefreshCw />
                     Refresh data
-                  </CommandItem>
-                  <CommandItem
+                  </CommandItem>}
+                  {(!paletteQuery.trim() || matchesPaletteText("home overview dashboard")) && <CommandItem
                     value="action home"
                     onSelect={() => navigate("home")}
                   >
                     <Home />
                     Go to overview
-                  </CommandItem>
-                  <CommandItem
+                  </CommandItem>}
+                  {(!paletteQuery.trim() || matchesPaletteText("theme dark light appearance")) && <CommandItem
                     value="action theme dark light"
                     onSelect={() => {
                       setDarkMode((current) => !current);
@@ -1688,8 +1872,8 @@ export function App() {
                   >
                     {darkMode ? <Sun /> : <Moon />}
                     {darkMode ? "Light theme" : "Dark theme"}
-                  </CommandItem>
-                  <CommandItem
+                  </CommandItem>}
+                  {(!paletteQuery.trim() || matchesPaletteText("logout sign out")) && <CommandItem
                     value="action logout"
                     onSelect={() => {
                       setPaletteOpen(false);
@@ -1698,8 +1882,9 @@ export function App() {
                   >
                     <LogOut />
                     Log out
-                  </CommandItem>
+                  </CommandItem>}
                 </CommandGroup>
+                </>}
               </CommandList>
             </Command>
           </CommandDialog>

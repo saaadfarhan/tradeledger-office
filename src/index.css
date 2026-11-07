@@ -123,7 +123,7 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    min-width: 360px;
+    min-width: 320px;
     font-feature-settings: "ss01" on, "cv11" on;
   }
   button:not(:disabled),
@@ -164,7 +164,30 @@
 
 .app-workspace {
   background-color: color-mix(in oklch, var(--muted) 34%, var(--background));
-  background-image: radial-gradient(ellipse at 86% 0%, color-mix(in oklch, var(--primary) 5%, transparent), transparent 38rem);
+}
+
+.app-workspace [data-slot="card"] {
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+
+.app-workspace :where(input, textarea, [role="combobox"], select) {
+  min-width: 0;
+}
+
+.app-workspace [data-slot="table-container"] {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 [data-slot="table-row"]:hover {

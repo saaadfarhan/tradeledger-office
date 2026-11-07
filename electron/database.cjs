@@ -88,7 +88,7 @@ function initializeSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS vouchers (
       number TEXT PRIMARY KEY, date TEXT NOT NULL, narration TEXT, reference TEXT,
-      voucher_type TEXT NOT NULL DEFAULT 'VOUCHER'
+      voucher_type TEXT NOT NULL DEFAULT 'VOUCHER', payment_method TEXT NOT NULL DEFAULT '', cheque_number TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS voucher_lines (
       voucher_number TEXT NOT NULL, line_number INTEGER NOT NULL, account_code TEXT NOT NULL,
@@ -130,10 +130,9 @@ function initializeSchema(db) {
     const rows = db.prepare(`SELECT rowid, permissions FROM ${table}`).all()
     const update = db.prepare(`UPDATE ${table} SET permissions=? WHERE rowid=?`)
     for (const row of rows) {
-      const permissions = String(row.permissions || '').split('\u001f').filter((permission) => permission && permission !== 'Stock Types')
-      if (permissions.length !== String(row.permissions || '').split('\u001f').filter(Boolean).length) {
-        update.run(permissions.join('\u001f'), row.rowid)
-      }
+      const aliases = { Voucher: 'Journal Voucher', 'Search Payment': 'Payment / Receipt (view only)' }
+      const permissions = [...new Set(String(row.permissions || '').split('\u001f').filter((permission) => permission && permission !== 'Stock Types').map((permission) => aliases[permission] || permission))]
+      if (permissions.join('\u001f') !== String(row.permissions || '')) update.run(permissions.join('\u001f'), row.rowid)
     }
   }
   db.prepare("DELETE FROM audit_events WHERE action LIKE 'STOCK_TYPE_%'").run()
@@ -146,11 +145,22 @@ function initializeSchema(db) {
   if (!hadPermissionPresetTable) {
     const insertPreset = db.prepare('INSERT INTO user_permission_presets(name, description, permissions) VALUES (?, ?, ?)')
     for (const preset of [
-      ['Sales operator', 'Enter sale challans and review related records.', ['Chart of Accounts', 'Items', 'Sale Challans', 'Search Payment', 'Reports']],
-      ['Purchase operator', 'Enter purchase challans and review related records.', ['Chart of Accounts', 'Items', 'Purchase Challans', 'Search Payment', 'Reports']],
-      ['Cashier / payments', 'Record payments, receipts, and cheque details.', ['Chart of Accounts', 'Banks', 'Cheque Detail', 'Payment / Receipt', 'Search Payment', 'Reports']],
+      ['Sales operator', 'Enter sale challans and review related records.', ['Chart of Accounts', 'Items', 'Sale Challans', 'Payment / Receipt (view only)', 'Reports']],
+      ['Purchase operator', 'Enter purchase challans and review related records.', ['Chart of Accounts', 'Items', 'Purchase Challans', 'Payment / Receipt (view only)', 'Reports']],
+      ['Cashier / payments', 'Record payments, receipts, and cheque details.', ['Chart of Accounts', 'Banks', 'Cheque Detail', 'Payment / Receipt', 'Reports']],
       ['Inventory operator', 'Maintain stock setup, opening stock, and transfers.', ['Items', 'Categories', 'Locations', 'Item Opening Balances', 'Transfer', 'Reports']],
     ]) insertPreset.run(preset[0], preset[1], preset[2].join('\u001f'))
+  }
+
+  // Normalize presets inserted above as well as existing user permissions.
+  for (const table of ['users', 'user_permission_presets']) {
+    const rows = db.prepare(`SELECT rowid, permissions FROM ${table}`).all()
+    const update = db.prepare(`UPDATE ${table} SET permissions=? WHERE rowid=?`)
+    for (const row of rows) {
+      const aliases = { Voucher: 'Journal Voucher', 'Search Payment': 'Payment / Receipt (view only)' }
+      const permissions = [...new Set(String(row.permissions || '').split('\u001f').filter(Boolean).map((permission) => aliases[permission] || permission))]
+      if (permissions.join('\u001f') !== String(row.permissions || '')) update.run(permissions.join('\u001f'), row.rowid)
+    }
   }
 
   const columns = db.prepare('PRAGMA table_info(cheques)').all().map((column) => column.name)
@@ -164,16 +174,69 @@ function initializeSchema(db) {
   if (!bankColumns.includes('ledger_account_code')) db.exec("ALTER TABLE banks ADD COLUMN ledger_account_code TEXT NOT NULL DEFAULT ''")
   const voucherColumns = db.prepare('PRAGMA table_info(vouchers)').all().map((column) => column.name)
   if (!voucherColumns.includes('voucher_type')) db.exec("ALTER TABLE vouchers ADD COLUMN voucher_type TEXT NOT NULL DEFAULT 'VOUCHER'")
+  if (!voucherColumns.includes('payment_method')) db.exec("ALTER TABLE vouchers ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''")
+  if (!voucherColumns.includes('cheque_number')) db.exec("ALTER TABLE vouchers ADD COLUMN cheque_number TEXT NOT NULL DEFAULT ''")
+  const voucherLineColumns = db.prepare('PRAGMA table_info(voucher_lines)').all().map((column) => column.name)
+  const legacyVoucherLineMethods = !voucherLineColumns.includes('payment_method')
+  if (legacyVoucherLineMethods) db.exec("ALTER TABLE voucher_lines ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''")
+  if (!voucherLineColumns.includes('cheque_number')) db.exec("ALTER TABLE voucher_lines ADD COLUMN cheque_number TEXT NOT NULL DEFAULT ''")
   const accountColumns = db.prepare('PRAGMA table_info(accounts)').all().map((column) => column.name)
   if (!accountColumns.includes('opening_balance_side')) db.exec("ALTER TABLE accounts ADD COLUMN opening_balance_side TEXT NOT NULL DEFAULT 'DEBIT'")
   if (!accountColumns.includes('account_type')) db.exec("ALTER TABLE accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED'")
   for (const [column, definition] of [['phone_no', "TEXT NOT NULL DEFAULT ''"], ['ntn_number', "TEXT NOT NULL DEFAULT ''"], ['mobile_no', "TEXT NOT NULL DEFAULT ''"], ['gst_no', "TEXT NOT NULL DEFAULT ''"], ['address', "TEXT NOT NULL DEFAULT ''"], ['party_type', "TEXT NOT NULL DEFAULT ''"], ['cash_bank', "TEXT NOT NULL DEFAULT ''"]]) {
     if (!accountColumns.includes(column)) db.exec(`ALTER TABLE accounts ADD COLUMN ${column} ${definition}`)
   }
+  if (legacyVoucherLineMethods) {
+    const legacyJournalVouchers = db.prepare("SELECT number, payment_method AS paymentMethod, cheque_number AS chequeNumber FROM vouchers WHERE voucher_type='JOURNAL VOUCHER' AND payment_method IN ('CASH','CHEQUE')").all()
+    const linesForVoucher = db.prepare('SELECT line_number AS lineNumber, account_code AS accountCode FROM voucher_lines WHERE voucher_number=? ORDER BY line_number')
+    const chequeBankAccount = db.prepare('SELECT bank_account_code AS accountCode FROM cheques WHERE number=?')
+    const cashAccountLine = db.prepare("SELECT vl.line_number AS lineNumber FROM voucher_lines vl JOIN accounts a ON a.code=vl.account_code WHERE vl.voucher_number=? AND (a.cash_bank='CASH' OR lower(a.description) LIKE '%cash%') ORDER BY vl.line_number LIMIT 1")
+    const assignLegacyMethod = db.prepare('UPDATE voucher_lines SET payment_method=?, cheque_number=? WHERE voucher_number=? AND line_number=?')
+    for (const voucher of legacyJournalVouchers) {
+      const lines = linesForVoucher.all(voucher.number)
+      if (!lines.length) continue
+      const linkedBank = voucher.paymentMethod === 'CHEQUE' && voucher.chequeNumber ? chequeBankAccount.get(voucher.chequeNumber)?.accountCode : ''
+      const matchingBankLine = linkedBank ? lines.find((line) => line.accountCode === linkedBank) : null
+      const target = matchingBankLine ?? (voucher.paymentMethod === 'CASH' ? cashAccountLine.get(voucher.number) : null) ?? lines[0]
+      assignLegacyMethod.run(voucher.paymentMethod, voucher.paymentMethod === 'CHEQUE' ? voucher.chequeNumber : '', voucher.number, target.lineNumber)
+    }
+  }
+  const legacyAccountCodes = {
+    'SYS-ASSET': '1',
+    'SYS-LIAB': '2',
+    'SYS-REV': '3',
+    'SYS-PUR': '4',
+    'SYS-SALES': '5',
+    'SYS-EXP': '6',
+  }
+  const migrateLegacyAccountCodes = db.transaction(() => {
+    db.pragma('foreign_keys = OFF')
+    for (const [oldCode, newCode] of Object.entries(legacyAccountCodes)) {
+      const oldAccount = db.prepare('SELECT * FROM accounts WHERE code=?').get(oldCode)
+      if (!oldAccount) continue
+      if (!db.prepare('SELECT 1 FROM accounts WHERE code=?').get(newCode)) {
+        db.prepare(`INSERT INTO accounts(code, description, parent_code, opening_balance, opening_balance_side, account_type, phone_no, ntn_number, mobile_no, gst_no, address, party_type, cash_bank)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          newCode, oldAccount.description, oldAccount.parent_code, oldAccount.opening_balance, oldAccount.opening_balance_side,
+          oldAccount.account_type, oldAccount.phone_no, oldAccount.ntn_number, oldAccount.mobile_no, oldAccount.gst_no,
+          oldAccount.address, oldAccount.party_type, oldAccount.cash_bank,
+        )
+      }
+      db.prepare('UPDATE accounts SET parent_code=? WHERE parent_code=?').run(newCode, oldCode)
+      db.prepare('UPDATE challans SET party=? WHERE party=?').run(newCode, oldCode)
+      db.prepare('UPDATE banks SET ledger_account_code=? WHERE ledger_account_code=?').run(newCode, oldCode)
+      db.prepare('UPDATE cheques SET party=? WHERE party=?').run(newCode, oldCode)
+      db.prepare('UPDATE cheques SET bank_account_code=? WHERE bank_account_code=?').run(newCode, oldCode)
+      db.prepare('UPDATE voucher_lines SET account_code=? WHERE account_code=?').run(newCode, oldCode)
+      db.prepare('DELETE FROM accounts WHERE code=?').run(oldCode)
+    }
+    db.pragma('foreign_keys = ON')
+  })
+  migrateLegacyAccountCodes()
   db.exec(`INSERT OR IGNORE INTO accounts(code, description, account_type) VALUES
-    ('SYS-ASSET', 'Assets', 'ASSET'), ('SYS-LIAB', 'Liabilities', 'LIABILITY'),
-    ('SYS-REV', 'Revenue', 'INCOME'), ('SYS-PUR', 'Purchase Goods', 'EXPENSE'),
-    ('SYS-SALES', 'Sales', 'INCOME'), ('SYS-EXP', 'Expenses', 'EXPENSE')`)
+    ('1', 'Assets', 'ASSET'), ('2', 'Liabilities', 'LIABILITY'),
+    ('3', 'Revenue', 'INCOME'), ('4', 'Purchase Goods', 'EXPENSE'),
+    ('5', 'Sales', 'INCOME'), ('6', 'Expenses', 'EXPENSE')`)
   const itemColumns = db.prepare('PRAGMA table_info(items)').all().map((column) => column.name)
   if (!itemColumns.includes('item_rate')) {
     db.exec('ALTER TABLE items ADD COLUMN item_rate NUMERIC NOT NULL DEFAULT 0')
@@ -236,7 +299,7 @@ function createOfficeStore(db) {
     for (const [key, kind = 'text'] of fields) {
       const normalize = (value) => kind === 'number' ? Number(value ?? 0)
         : kind === 'nullable' ? (value || null)
-        : kind === 'lines' ? JSON.stringify((value || []).map((line) => [line.itemCode || line.accountCode || line.itemLabel || '', Number(line.quantity ?? line.debit ?? 0), Number(line.credit ?? 0), Number(line.rate ?? 0), Number(line.discountPercent ?? 0), Number(line.discountAmount ?? 0), line.brand ?? '', line.category ?? '']))
+        : kind === 'lines' ? JSON.stringify((value || []).map((line) => [line.itemCode || line.accountCode || line.itemLabel || '', Number(line.quantity ?? line.debit ?? 0), Number(line.credit ?? 0), Number(line.rate ?? 0), Number(line.amount ?? 0), Number(line.discountPercent ?? 0), Number(line.discountAmount ?? 0), line.brand ?? '', line.category ?? '', line.paymentMethod ?? '', line.chequeNumber ?? '']))
             : (value ?? '')
       const same = (left, right) => normalize(left) === normalize(right)
       const original = baseline[key]
@@ -395,7 +458,7 @@ function createOfficeStore(db) {
     const username = required(input.username, 'User name')
     const password = String(input.password || '')
     if (password.length < 8) throw new Error('Password must be at least 8 characters')
-    const permissions = ['Overview', 'Company Profile', 'Chart of Accounts', 'Items', 'Categories', 'Banks', 'Locations', 'Item Opening Balances', 'Transfer', 'Cheque Detail', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Search Payment', 'Payment / Receipt', 'Reports', 'User Rights', 'Audit Log', 'Database Tools', 'Manual']
+    const permissions = ['Overview', 'Company Profile', 'Chart of Accounts', 'Items', 'Categories', 'Banks', 'Locations', 'Item Opening Balances', 'Transfer', 'Cheque Detail', 'Purchase Challans', 'Sale Challans', 'Journal Voucher', 'Payment / Receipt', 'Reports', 'User Rights', 'Audit Log', 'Database Tools', 'Manual']
     db.prepare('INSERT INTO users(username, password_hash, permissions, is_admin) VALUES (?, ?, ?, 1)').run(username, hashPassword(password), permissions.join('\u001f'))
     currentUser = username
     recordAudit('INITIAL_ADMIN_CREATED', username)
@@ -519,9 +582,35 @@ function createOfficeStore(db) {
       gst_no AS gstNo, address, party_type AS partyType, cash_bank AS cashBank FROM accounts ORDER BY code`).all()
   }
 
+  function nextAccountCode(parentCode = '') {
+    const segmentLength = parentCode.length === 0
+      ? 1
+      : parentCode.length === 1
+        ? 1
+        : parentCode.length === 2
+          ? 2
+          : parentCode.length === 4
+            ? 4
+            : 2
+    const suffixes = db.prepare(parentCode
+      ? 'SELECT code FROM accounts WHERE parent_code=?'
+      : 'SELECT code FROM accounts WHERE parent_code IS NULL')
+      .all(...(parentCode ? [parentCode] : []))
+      .map((row) => String(row.code))
+      .filter((code) => /^\d+$/.test(code) && code.startsWith(parentCode))
+      .map((code) => Number(code.slice(parentCode.length)))
+      .filter((suffix) => Number.isFinite(suffix) && String(suffix).length <= segmentLength)
+    const next = suffixes.length === 0 ? 1 : Math.max(...suffixes) + 1
+    const suffix = String(next).padStart(segmentLength, '0')
+    if (suffix.length > segmentLength || (parentCode.length === 0 && next > 9)) {
+      throw new Error('No account codes remain at this level')
+    }
+    return `${parentCode}${suffix}`
+  }
+
   function saveAccount(input) {
-    const code = required(input.code, 'Account code')
-    const exists = findAccount.get(code)
+    const requestedCode = String(input.code || '').trim()
+    const existsBeforeMerge = requestedCode ? findAccount.get(requestedCode) : null
     const proposed = {
       description: required(input.description, 'Description'),
       parentCode: input.parentCode ? String(input.parentCode).trim() : null,
@@ -533,10 +622,12 @@ function createOfficeStore(db) {
       partyType: String(input.partyType || '').toUpperCase(), cashBank: String(input.cashBank || '').toUpperCase(),
     }
     const merged = input.__baseline
-      ? mergeConcurrentFields(exists, input.__baseline, proposed, [['description'], ['parentCode', 'nullable'], ['openingBalance', 'number'], ['openingBalanceSide'], ['accountType'], ['phoneNo'], ['ntnNumber'], ['mobileNo'], ['gstNo'], ['address'], ['partyType'], ['cashBank']], 'account')
+      ? mergeConcurrentFields(existsBeforeMerge, input.__baseline, proposed, [['description'], ['parentCode', 'nullable'], ['openingBalance', 'number'], ['openingBalanceSide'], ['accountType'], ['phoneNo'], ['ntnNumber'], ['mobileNo'], ['gstNo'], ['address'], ['partyType'], ['cashBank']], 'account')
       : proposed
     const description = required(merged.description, 'Description')
     const parentCode = merged.parentCode ? String(merged.parentCode).trim() : null
+    const code = requestedCode || nextAccountCode(parentCode || '')
+    const exists = findAccount.get(code)
     if (!['DEBIT', 'CREDIT'].includes(merged.openingBalanceSide)) throw new Error('Opening balance side must be debit or credit')
     if (!['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE', 'UNCLASSIFIED'].includes(merged.accountType)) throw new Error('Account type is not supported')
     if (!['', 'SUPPLIER', 'BANK ACCOUNT'].includes(merged.partyType)) throw new Error('Account Type is not supported')
@@ -727,7 +818,7 @@ function createOfficeStore(db) {
 
   function getDashboard(userPermissions) {
     const permissions = new Set(userPermissions || ['Chart of Accounts', 'Items', 'Banks', 'Purchase Challans', 'Sale Challans', 'Reports', 'Transfer', 'Item Opening Balances'])
-    const canSeeAccounts = ['Chart of Accounts', 'Purchase Challans', 'Sale Challans', 'Voucher', 'Journal Voucher', 'Payment / Receipt', 'Search Payment', 'Reports'].some((permission) => permissions.has(permission))
+    const canSeeAccounts = ['Chart of Accounts', 'Purchase Challans', 'Sale Challans', 'Journal Voucher', 'Payment / Receipt', 'Reports'].some((permission) => permissions.has(permission))
     const canSeeItems = ['Items', 'Purchase Challans', 'Sale Challans', 'Reports'].some((permission) => permissions.has(permission))
     const canSeeBanks = ['Banks', 'Cheque Detail', 'Reports'].some((permission) => permissions.has(permission))
     const canSeePurchases = permissions.has('Purchase Challans') || permissions.has('Reports')
@@ -845,9 +936,10 @@ function createOfficeStore(db) {
 
   function listVouchers(types = null) {
     const headers = types?.length
-      ? db.prepare(`SELECT number, date, narration, reference, voucher_type AS type FROM vouchers WHERE voucher_type IN (${types.map(() => '?').join(',')}) ORDER BY date DESC, number DESC`).all(...types)
-      : db.prepare(`SELECT number, date, narration, reference, voucher_type AS type FROM vouchers ORDER BY date DESC, number DESC`).all()
-    const lines = db.prepare(`SELECT line_number AS lineNumber, account_code AS accountCode, debit, credit
+      ? db.prepare(`SELECT number, date, narration, reference, voucher_type AS type, payment_method AS paymentMethod, cheque_number AS chequeNumber FROM vouchers WHERE voucher_type IN (${types.map(() => '?').join(',')}) ORDER BY date DESC, number DESC`).all(...types)
+      : db.prepare(`SELECT number, date, narration, reference, voucher_type AS type, payment_method AS paymentMethod, cheque_number AS chequeNumber FROM vouchers ORDER BY date DESC, number DESC`).all()
+    const lines = db.prepare(`SELECT line_number AS lineNumber, account_code AS accountCode, debit, credit,
+      payment_method AS paymentMethod, cheque_number AS chequeNumber
       FROM voucher_lines WHERE voucher_number=? ORDER BY line_number`)
     return headers.map((voucher) => ({ ...voucher, lines: lines.all(voucher.number) }))
   }
@@ -867,17 +959,24 @@ function createOfficeStore(db) {
       const credit = nonNegative(line.credit, 'Credit')
       if (debit > 0 && credit > 0) throw new Error('A voucher line cannot have both debit and credit')
       if (debit === 0 && credit === 0) throw new Error('Each voucher line needs a debit or credit amount')
-      return { accountCode, debit, credit }
+      const paymentMethod = type === 'JOURNAL VOUCHER' ? String(line.paymentMethod || '').trim().toUpperCase() : ''
+      const chequeNumber = type === 'JOURNAL VOUCHER' && paymentMethod === 'CHEQUE' ? required(line.chequeNumber, 'Cheque ID') : ''
+      if (paymentMethod && !['CASH', 'CHEQUE'].includes(paymentMethod)) throw new Error('Cash / Cheque value is not supported')
+      if (chequeNumber && !db.prepare('SELECT 1 FROM cheques WHERE number=?').get(chequeNumber)) throw new Error(`Selected cheque ID does not exist: ${chequeNumber}`)
+      return { accountCode, debit, credit, paymentMethod, chequeNumber }
     })
     const debitTotal = lines.reduce((sum, line) => sum + line.debit, 0)
     const creditTotal = lines.reduce((sum, line) => sum + line.credit, 0)
     if (Math.abs(debitTotal - creditTotal) > 1e-8) throw new Error('Debit and credit totals must balance')
-    return { number, date, type, narration: String(input.narration || '').trim(), reference: String(input.reference || '').trim(), lines }
+    const paymentMethod = ''
+    const chequeNumber = ['PAYMENT', 'RECEIPT'].includes(type) && input.chequeNumber ? required(input.chequeNumber, 'Cheque ID') : ''
+    if (chequeNumber && !db.prepare('SELECT 1 FROM cheques WHERE number=?').get(chequeNumber)) throw new Error('Selected cheque ID does not exist')
+    return { number, date, type, narration: String(input.narration || '').trim(), reference: String(input.reference || '').trim(), paymentMethod, chequeNumber, lines }
   }
 
   const saveVoucherTransaction = db.transaction((input) => {
     let voucher = validateVoucher(input)
-    const existing = db.prepare('SELECT number, date, narration, reference, voucher_type AS type FROM vouchers WHERE number=?').get(voucher.number)
+    const existing = db.prepare('SELECT number, date, narration, reference, voucher_type AS type, payment_method AS paymentMethod, cheque_number AS chequeNumber FROM vouchers WHERE number=?').get(voucher.number)
     const exists = Boolean(existing)
     const update = Boolean(input.update)
     if (exists && !update) throw new Error(`Voucher number already exists: ${voucher.number}`)
@@ -886,19 +985,19 @@ function createOfficeStore(db) {
       const existingType = getVoucherType(voucher.number)
       if (existingType !== voucher.type) throw new Error('An existing voucher cannot be changed to another voucher type')
       if (input.__baseline) {
-        const current = { ...existing, lines: db.prepare('SELECT account_code AS accountCode, debit, credit FROM voucher_lines WHERE voucher_number=? ORDER BY line_number').all(voucher.number) }
-        const merged = mergeConcurrentFields(current, input.__baseline, voucher, [['date'], ['narration'], ['reference'], ['lines', 'lines']], 'voucher')
+        const current = { ...existing, lines: db.prepare('SELECT account_code AS accountCode, debit, credit, payment_method AS paymentMethod, cheque_number AS chequeNumber FROM voucher_lines WHERE voucher_number=? ORDER BY line_number').all(voucher.number) }
+        const merged = mergeConcurrentFields(current, input.__baseline, voucher, [['date'], ['narration'], ['reference'], ['paymentMethod'], ['chequeNumber'], ['lines', 'lines']], 'voucher')
         voucher = validateVoucher({ ...voucher, ...merged })
       }
-      db.prepare('UPDATE vouchers SET date=?, narration=?, reference=?, voucher_type=? WHERE number=?')
-        .run(voucher.date, voucher.narration, voucher.reference, voucher.type, voucher.number)
+      db.prepare('UPDATE vouchers SET date=?, narration=?, reference=?, voucher_type=?, payment_method=?, cheque_number=? WHERE number=?')
+        .run(voucher.date, voucher.narration, voucher.reference, voucher.type, voucher.paymentMethod, voucher.chequeNumber, voucher.number)
       db.prepare('DELETE FROM voucher_lines WHERE voucher_number=?').run(voucher.number)
     } else {
-      db.prepare('INSERT INTO vouchers(number,date,narration,reference,voucher_type) VALUES (?,?,?,?,?)')
-        .run(voucher.number, voucher.date, voucher.narration, voucher.reference, voucher.type)
+      db.prepare('INSERT INTO vouchers(number,date,narration,reference,voucher_type,payment_method,cheque_number) VALUES (?,?,?,?,?,?,?)')
+        .run(voucher.number, voucher.date, voucher.narration, voucher.reference, voucher.type, voucher.paymentMethod, voucher.chequeNumber)
     }
-    const insert = db.prepare('INSERT INTO voucher_lines(voucher_number,line_number,account_code,debit,credit) VALUES (?,?,?,?,?)')
-    voucher.lines.forEach((line, index) => insert.run(voucher.number, index + 1, line.accountCode, line.debit, line.credit))
+    const insert = db.prepare('INSERT INTO voucher_lines(voucher_number,line_number,account_code,debit,credit,payment_method,cheque_number) VALUES (?,?,?,?,?,?,?)')
+    voucher.lines.forEach((line, index) => insert.run(voucher.number, index + 1, line.accountCode, line.debit, line.credit, line.paymentMethod, line.chequeNumber))
     recordAudit(exists ? 'VOUCHER_UPDATE' : `${voucher.type.replaceAll(' ', '_')}_POST`, voucher.number)
     return voucher
   })
@@ -939,10 +1038,8 @@ function createOfficeStore(db) {
       const quantity = positive(line.quantity, 'Quantity')
       const rate = nonNegative(line.rate ?? (item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : 0), 'Item rate')
       const gross = quantity * rate
-      const discountPercent = nonNegative(line.discountPercent ?? 0, 'Discount percent')
-      const discountAmount = nonNegative(line.discountAmount ?? gross * discountPercent / 100, 'Discount amount')
-      if (discountPercent > 100 || discountAmount > gross) throw new Error('Discount cannot exceed the line amount')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent, discountAmount, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount: gross - discountAmount }
+      const amount = nonNegative(line.amount ?? gross - nonNegative(line.discountAmount ?? gross * nonNegative(line.discountPercent ?? 0, 'Discount percent') / 100, 'Discount amount'), 'Applied amount')
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -959,7 +1056,7 @@ function createOfficeStore(db) {
     lines.forEach((line, index) => {
       const signedQuantity = type === 'PURCHASE' ? line.quantity : -line.quantity
       insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.discountPercent, line.discountAmount, line.brand, line.category)
-      if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.rate, signedQuantity * line.rate)
+      if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.amount / line.quantity, Math.sign(signedQuantity) * line.amount)
     })
     recordAudit('CHALLAN_POST', number)
     return { number, type, date, party, location, total, lines }
@@ -971,7 +1068,7 @@ function createOfficeStore(db) {
     if (!existing) throw new Error('Challan does not exist')
     const type = existing.type
     if (input.type && String(input.type).toUpperCase() !== type) throw new Error('A challan cannot be changed from purchase to sale or vice versa')
-    const current = { ...existing, lines: db.prepare('SELECT item_code AS itemCode, item_label AS itemLabel, quantity, rate, discount_percent AS discountPercent, discount_amount AS discountAmount, brand, category FROM challan_lines WHERE challan_number=? ORDER BY line_number').all(number) }
+    const current = { ...existing, lines: db.prepare('SELECT item_code AS itemCode, item_label AS itemLabel, quantity, rate, amount, discount_percent AS discountPercent, discount_amount AS discountAmount, brand, category FROM challan_lines WHERE challan_number=? ORDER BY line_number').all(number) }
     const proposed = { date: input.date, party: input.party, location: input.location, lines: input.lines }
     const changes = input.__baseline
       ? mergeConcurrentFields(current, input.__baseline, proposed, [['date'], ['party'], ['location'], ['lines', 'lines']], 'challan')
@@ -996,10 +1093,8 @@ function createOfficeStore(db) {
       const quantity = positive(line.quantity, 'Quantity')
       const rate = nonNegative(line.rate ?? (item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : 0), 'Item rate')
       const gross = quantity * rate
-      const discountPercent = nonNegative(line.discountPercent ?? 0, 'Discount percent')
-      const discountAmount = nonNegative(line.discountAmount ?? gross * discountPercent / 100, 'Discount amount')
-      if (discountPercent > 100 || discountAmount > gross) throw new Error('Discount cannot exceed the line amount')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent, discountAmount, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount: gross - discountAmount }
+      const amount = nonNegative(line.amount ?? gross - nonNegative(line.discountAmount ?? gross * nonNegative(line.discountPercent ?? 0, 'Discount percent') / 100, 'Discount amount'), 'Applied amount')
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -1014,7 +1109,7 @@ function createOfficeStore(db) {
     lines.forEach((line, index) => {
       const signedQuantity = type === 'PURCHASE' ? line.quantity : -line.quantity
       insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.discountPercent, line.discountAmount, line.brand, line.category)
-      if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.rate, signedQuantity * line.rate)
+      if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.amount / line.quantity, Math.sign(signedQuantity) * line.amount)
     })
     const affected = new Map(oldMovements.map((movement) => [`${movement.itemCode}\u0000${movement.location}`, movement]))
     for (const line of lines) if (line.itemCode) affected.set(`${line.itemCode}\u0000${location}`, { itemCode: line.itemCode, location })
@@ -1099,6 +1194,7 @@ function createOfficeStore(db) {
   const deleteChequeTransaction = db.transaction((numberInput) => {
     const number = required(numberInput, 'Cheque number')
     if (!db.prepare('SELECT 1 FROM cheques WHERE number=?').get(number)) throw new Error('Cheque does not exist')
+    if (db.prepare('SELECT 1 FROM vouchers WHERE cheque_number=? UNION ALL SELECT 1 FROM voucher_lines WHERE cheque_number=? LIMIT 1').get(number, number)) throw new Error('This cheque is linked to a saved voucher and cannot be deleted')
     db.prepare('DELETE FROM cheque_status_history WHERE cheque_number=?').run(number)
     db.prepare('DELETE FROM cheques WHERE number=?').run(number)
     recordAudit('CHEQUE_DELETE', number)
@@ -1169,9 +1265,7 @@ function normalizePermissions(values) {
     permissions.add('Locations')
     permissions.add('Item Opening Balances')
     permissions.add('Transfer')
-    permissions.add('Voucher')
     permissions.add('Journal Voucher')
-    permissions.add('Search Payment')
     permissions.add('Payment / Receipt')
   }
   return [...permissions]

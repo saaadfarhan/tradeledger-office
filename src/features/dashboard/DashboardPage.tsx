@@ -69,53 +69,50 @@ export function DashboardPage({
     minute: "2-digit",
   }).format(now);
   const stats = [
-    {
+    ...(allowedPages.includes("items") ? [{
       label: "Total Items",
       value: dashboard?.counts.items ?? "—",
       icon: Package,
       note: "In the item list",
-    },
-    { label: "Stock Value", value: money(items.reduce((sum, item) => sum + item.stockQuantity * item.purchaseRate, 0)), icon: Building2, note: "At purchase rates" },
-    {
+    }, { label: "Stock Value", value: money(items.reduce((sum, item) => sum + item.stockQuantity * item.purchaseRate, 0)), icon: Building2, note: "At purchase rates" }] : []),
+    ...(allowedPages.includes("sale") ? [{
       label: "Today's Sales",
       value:
         dashboard?.counts.salesToday == null
           ? "—"
           : money(dashboard.counts.salesToday),
       icon: ArrowUpFromLine,
-    },
-    {
+    }] : []),
+    ...(allowedPages.includes("purchase") ? [{
       label: "Today's Purchases",
       value:
         dashboard?.counts.purchasesToday == null
           ? "—"
           : money(dashboard.counts.purchasesToday),
       icon: ArrowDownToLine,
-    },
+    }] : []),
   ];
   const week = Array.from({ length: 7 }, (_, index) => {
     const day = new Date(now); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - (6 - index));
     const iso = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
-    const values = challans.filter((row) => row.date === iso).reduce((sum, row) => { if (row.type === 'SALE') sum.sales += row.total; else sum.purchases += row.total; return sum; }, { sales: 0, purchases: 0 });
+    const values = challans.filter((row) => row.date === iso).reduce((sum, row) => { if (row.type === 'SALE' && allowedPages.includes("sale")) sum.sales += row.total; else if (row.type === 'PURCHASE' && allowedPages.includes("purchase")) sum.purchases += row.total; return sum; }, { sales: 0, purchases: 0 });
     return { iso, label: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day), ...values };
   });
-  const chartMax = Math.max(1, ...week.flatMap((day) => [day.sales, day.purchases]));
+  const chartMax = Math.max(0, ...week.flatMap((day) => [day.sales, day.purchases]));
+  const hasWeekActivity = chartMax > 0;
   return (
     <section className="flex flex-col gap-5">
-      <header className="relative isolate overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-secondary/65 p-4 shadow-sm sm:p-6 lg:p-7">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 -z-10 size-64 rounded-full bg-primary/10 blur-3xl" />
-        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+      <header className="flex flex-col justify-between gap-4 border-b border-border/70 pb-4 sm:flex-row sm:items-center">
           <div className="min-w-0">
-            <p className="text-xs font-semibold tracking-wide text-primary">{localDate} <span className="text-muted-foreground">· {localTime}</span></p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{greeting}, {username}</h1>
-            <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Here’s what’s happening in your office today.</p>
+            <p className="text-xs font-medium text-muted-foreground">{localDate} · {localTime}</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{greeting}, {username}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Your office activity at a glance.</p>
           </div>
-          <div className="min-w-0 rounded-xl border bg-background/75 px-3 py-2.5 shadow-sm sm:px-4">
+          <div className="min-w-0 max-w-full">
             <CompanyBusinessCard company={company} logo={logo} />
           </div>
-        </div>
       </header>
-      <section aria-label="Office summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Office summary" className={`grid gap-3 sm:grid-cols-2 ${stats.length >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
         {stats.map(({ label, value, icon: Icon, note }, index) => (
           <Card key={label} className="transition-colors hover:border-primary/25">
             <CardContent className="flex items-center justify-between gap-3 p-4 sm:p-5">
@@ -131,13 +128,26 @@ export function DashboardPage({
           </Card>
         ))}
       </section>
-      <Card>
-        <CardHeader><CardTitle className="text-base">Sales vs purchases · last 7 days</CardTitle><CardDescription>Daily totals from posted challans.</CardDescription></CardHeader>
+      {(allowedPages.includes("sale") || allowedPages.includes("purchase")) && <Card size="sm">
+        <CardHeader><CardTitle className="text-base">{allowedPages.includes("sale") && allowedPages.includes("purchase") ? "Sales and purchases" : allowedPages.includes("sale") ? "Sales activity" : "Purchase activity"} · last 7 days</CardTitle><CardDescription>Daily totals from posted challans.</CardDescription></CardHeader>
         <CardContent>
-          <div className="mb-4 flex gap-5 text-sm"><span className="flex items-center gap-2"><i className="size-2.5 rounded-sm bg-primary"/>Sales</span><span className="flex items-center gap-2"><i className="size-2.5 rounded-sm bg-muted-foreground/40"/>Purchases</span></div>
-          <div className="grid h-48 grid-cols-7 items-end gap-3 sm:gap-6">{week.map((day) => <div key={day.iso} className="flex h-full flex-col items-center justify-end gap-2"><div className="flex h-[calc(100%-1.5rem)] w-full items-end justify-center gap-1"><div title={`Sales ${money(day.sales)}`} className="w-1/3 rounded-t bg-primary" style={{ height: `${Math.max(2, day.sales / chartMax * 100)}%` }}/><div title={`Purchases ${money(day.purchases)}`} className="w-1/3 rounded-t bg-muted-foreground/40" style={{ height: `${Math.max(2, day.purchases / chartMax * 100)}%` }}/></div><span className="text-xs text-muted-foreground">{day.label}</span></div>)}</div>
+          <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">{allowedPages.includes("sale") && <span className="flex items-center gap-2"><i className="size-2.5 rounded-sm bg-primary"/>Sales</span>}{allowedPages.includes("purchase") && <span className="flex items-center gap-2"><i className="size-2.5 rounded-sm bg-muted-foreground/40"/>Purchases</span>}</div>
+          {hasWeekActivity ? (
+            <div aria-label="Daily transaction bar chart" className="grid h-40 grid-cols-7 items-end gap-2 sm:h-48 sm:gap-5">
+              {week.map((day) => (
+                <div key={day.iso} className="flex h-full min-w-0 flex-col items-center justify-end gap-2">
+                  <div className="flex h-[calc(100%-1.5rem)] w-full items-end justify-center gap-1">
+                    {allowedPages.includes("sale") && <div aria-label={`Sales ${money(day.sales)}`} title={`Sales ${money(day.sales)}`} className="w-2/5 rounded-t-sm bg-primary" style={{ height: day.sales ? `${Math.max(4, day.sales / chartMax * 100)}%` : "0%" }} />}
+                    {allowedPages.includes("purchase") && <div aria-label={`Purchases ${money(day.purchases)}`} title={`Purchases ${money(day.purchases)}`} className="w-2/5 rounded-t-sm bg-muted-foreground/40" style={{ height: day.purchases ? `${Math.max(4, day.purchases / chartMax * 100)}%` : "0%" }} />}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{day.label}</span>
+                  <span className="sr-only">{allowedPages.includes("sale") ? `Sales ${money(day.sales)}; ` : ""}{allowedPages.includes("purchase") ? `purchases ${money(day.purchases)}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          ) : <p className="rounded-lg bg-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">No sales or purchases recorded in the last seven days.</p>}
         </CardContent>
-      </Card>
+      </Card>}
       {dashboard?.canSeeRecent && (
         <Card>
           <CardHeader>
@@ -328,9 +338,7 @@ export function CompanyBusinessCard({
       <div className="min-w-0">
         <p className="max-w-64 truncate text-sm font-medium">{name}</p>
         <p className="max-w-96 truncate text-xs text-muted-foreground">
-          {details.length
-            ? details.map(([label, value]) => `${label}: ${value}`).join(" · ")
-            : "Company details not set"}
+          {details.length ? details.map(([label, value]) => `${label}: ${value}`).join(" · ") : "Company details not set"}
         </p>
       </div>
     </div>

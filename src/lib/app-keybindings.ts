@@ -1,5 +1,8 @@
 export type AppKeybindingAction =
   | "search"
+  | "focusSearch"
+  | "newRecord"
+  | "saveRecord"
   | "back"
   | "forward"
   | "home"
@@ -28,6 +31,9 @@ export const APP_KEYBINDINGS: Array<{
     action: "search",
     description: "Open global search and commands",
   },
+  { keys: "Ctrl+F", action: "focusSearch", description: "Focus the current page’s search or filter, when available" },
+  { keys: "Ctrl+N", action: "newRecord", description: "Start a new record where creation is available" },
+  { keys: "Ctrl+S", action: "saveRecord", description: "Save the open record form where supported" },
   { keys: "Alt+←", action: "back", description: "Go to the previous page" },
   { keys: "Alt+→", action: "forward", description: "Go to the next page" },
   { keys: "Alt+Home", action: "home", description: "Open the overview" },
@@ -72,6 +78,9 @@ export function matchAppKeybinding(
 
   if (modifier && !event.altKey && key === "k" && !event.shiftKey)
     return "search";
+  if (modifier && !event.altKey && !event.shiftKey && key === "f") return "focusSearch";
+  if (modifier && !event.altKey && !event.shiftKey && key === "n") return "newRecord";
+  if (modifier && !event.altKey && !event.shiftKey && key === "s") return "saveRecord";
   if (event.altKey && !modifier && key === "arrowleft") return "back";
   if (event.altKey && !modifier && key === "arrowright") return "forward";
   if (event.altKey && !modifier && key === "home") return "home";

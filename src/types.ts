@@ -81,6 +81,7 @@ export type ChallanInputLine = {
   itemLabel?: string;
   quantity: number;
   rate?: number;
+  amount?: number;
   discountPercent?: number;
   discountAmount?: number;
   brand?: string;
@@ -112,6 +113,8 @@ export type VoucherLine = {
   accountCode: string;
   debit: number;
   credit: number;
+  paymentMethod?: "CASH" | "CHEQUE" | "";
+  chequeNumber?: string;
 };
 export type Voucher = {
   number: string;
@@ -119,6 +122,8 @@ export type Voucher = {
   narration: string;
   reference: string;
   type: "VOUCHER" | "JOURNAL VOUCHER" | "PAYMENT" | "RECEIPT";
+  chequeNumber?: string;
+  paymentMethod?: "CASH" | "CHEQUE" | "";
   lines: VoucherLine[];
 };
 export type Dashboard = {

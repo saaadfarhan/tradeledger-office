@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import type { CompanyProfile } from "@/types";
 import { Field } from "@/components/forms/Fields";
 import { cn } from "cn";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function CompanyProfilePage({
   profile,
@@ -97,16 +98,9 @@ export function CompanyProfilePage({
         onboarding ? "gap-3" : "gap-4 sm:gap-6",
       )}
     >
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          {onboarding ? "Set up your company" : "Company profile"}
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          {onboarding
-            ? "Add the details shown on your reports and set a password for administrator-only pages."
-            : "Update the company details shown on the dashboard and printed documents."}
-        </p>
-      </header>
+      <PageHeader title={onboarding ? "Set up your company" : "Company profile"} description={onboarding
+            ? "Add the details shown on reports and set a password for administrator-only pages."
+            : "Update the company details shown on the dashboard and printed documents."} className="border-0 pb-0" />
 
       <form
         onSubmit={(event) => void submit(event)}
@@ -333,7 +327,7 @@ export function CompanyProfilePage({
 
         <Separator />
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
+          <Button data-operator-save
             className="w-full sm:w-auto"
             type="submit"
             disabled={saving || !values.name.trim()}
