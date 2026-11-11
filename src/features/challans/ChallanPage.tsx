@@ -605,7 +605,10 @@ export function ChallanPage({
                   (candidate) => candidate.code === line.itemCode,
                 );
                 return (
-                  <div key={index} className="rounded-xl border bg-card p-4">
+                  <div
+                    key={index}
+                    className="rounded-xl border bg-card p-4"
+                  >
                     <div className="mb-4 flex items-center justify-between">
                       <p className="text-sm font-medium">
                         Line {String(index + 1).padStart(2, "0")}

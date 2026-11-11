@@ -97,7 +97,7 @@ export function VoucherEntryPage({
       accountCode: "",
       debit: "",
       credit: "",
-      paymentMethod: "CASH",
+      paymentMethod: "CHEQUE",
       chequeNumber: "",
     },
   ]);
@@ -172,7 +172,7 @@ export function VoucherEntryPage({
         accountCode: "",
         debit: "",
         credit: "",
-        paymentMethod: "CASH",
+        paymentMethod: "CHEQUE",
         chequeNumber: "",
       },
     ]);
@@ -420,7 +420,9 @@ export function VoucherEntryPage({
         </TableHeader>
         <TableBody>
           {displayLines.map(({ line, index }) => (
-              <TableRow key={index < 0 ? `empty-${method}` : index}>
+              <TableRow
+                key={index < 0 ? `empty-${method}` : index}
+              >
                 <TableCell className="w-64 min-w-0 align-top">
                   <FormSelect
                     id={`voucher-account-${index < 0 ? `empty-${method}` : index}`}
@@ -463,7 +465,7 @@ export function VoucherEntryPage({
                   <Input aria-label={`Credit line ${index < 0 ? "new" : index + 1}`} className="min-w-0" type="number" min="0" step="any" value={line.credit} onChange={(event) => updateEntryLine(index, method, { credit: event.target.value, debit: event.target.value ? "" : line.debit })} />
                 </TableCell>
                 <TableCell className="align-top">
-                  <Button type="button" size="icon-sm" variant="ghost" aria-label="Remove line" disabled={index < 0 || lines.length <= 2} onClick={() => setLines((current) => current.filter((_, row) => row !== index))}>
+                  <Button type="button" size="icon-sm" variant="ghost" aria-label="Remove line" disabled={index < 0 || (!showJournalLineFields && lines.length <= 2)} onClick={() => setLines((current) => current.filter((_, row) => row !== index))}>
                     <Trash2 />
                   </Button>
                 </TableCell>

@@ -140,6 +140,15 @@
   :where(input, textarea, select, button):focus-visible {
     scroll-margin-block: 5rem;
   }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
   [data-slot="table-container"] {
     scrollbar-color: color-mix(in oklch, var(--muted-foreground) 28%, transparent) transparent;
     scrollbar-width: thin;
