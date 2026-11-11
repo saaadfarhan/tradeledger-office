@@ -15,6 +15,11 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
@@ -114,7 +119,7 @@ export function ChallanPage({
     rate: number;
     purchaseRate: number | "";
     additionalRatePercent: string;
-    saleRate: number;
+    saleRate: number | "";
     brand: string;
     category: string;
   };
@@ -237,6 +242,11 @@ export function ChallanPage({
       ];
     }) ?? [];
   const lineRate = (line: DraftLine) => line.rate;
+  const ratePercentage = (baseRate: number, activeRate: number | "") => {
+    if (activeRate === "") return "";
+    if (baseRate <= 0) return "0";
+    return String((activeRate * 100) / baseRate - 100);
+  };
   const setLine = (index: number, updates: Partial<DraftLine>) =>
     setLines((current) =>
       current.map((line, lineIndex) => {
@@ -257,9 +267,7 @@ export function ChallanPage({
           next.saleRate = selectedItem?.saleRate ?? 0;
           const activeRate =
             type === "PURCHASE" ? next.purchaseRate : next.saleRate;
-          next.additionalRatePercent = String(
-            next.rate > 0 ? (activeRate * 100) / next.rate - 100 : 0,
-          );
+          next.additionalRatePercent = ratePercentage(next.rate, activeRate);
         }
         if (Object.hasOwn(updates, "rate")) {
           const additionalRatePercent = Number(next.additionalRatePercent) || 0;
@@ -270,18 +278,40 @@ export function ChallanPage({
         if (
           Object.hasOwn(updates, "purchaseRate") &&
           type === "PURCHASE" &&
-          typeof next.purchaseRate === "number"
+          (typeof next.purchaseRate === "number" || next.purchaseRate === "")
         )
-          next.additionalRatePercent = String(
-            next.rate > 0 ? (next.purchaseRate * 100) / next.rate - 100 : 0,
+          next.additionalRatePercent = ratePercentage(
+            next.rate,
+            next.purchaseRate,
           );
-        if (Object.hasOwn(updates, "saleRate") && type === "SALE")
-          next.additionalRatePercent = String(
-            next.rate > 0 ? (next.saleRate * 100) / next.rate - 100 : 0,
+        if (
+          Object.hasOwn(updates, "saleRate") &&
+          type === "SALE" &&
+          (typeof next.saleRate === "number" || next.saleRate === "")
+        )
+          next.additionalRatePercent = ratePercentage(
+            next.rate,
+            next.saleRate,
           );
         if (Object.hasOwn(updates, "additionalRatePercent")) {
-          const additionalRatePercent = Number(next.additionalRatePercent) || 0;
-          const activeRate = (next.rate * (100 + additionalRatePercent)) / 100;
+          const currentRate =
+            type === "PURCHASE" ? next.purchaseRate : next.saleRate;
+          const isDiscount =
+            typeof currentRate === "number" &&
+            next.rate > 0 &&
+            currentRate < next.rate;
+          const magnitude = Math.abs(
+            Number(next.additionalRatePercent) || 0,
+          );
+          const signedPercent =
+            next.additionalRatePercent === ""
+              ? ""
+              : magnitude === 0
+                ? "0"
+                : String(isDiscount ? -magnitude : magnitude);
+          next.additionalRatePercent = signedPercent;
+          const activeRate =
+            (next.rate * (100 + (Number(signedPercent) || 0))) / 100;
           if (type === "PURCHASE") next.purchaseRate = activeRate;
           else next.saleRate = activeRate;
         }
@@ -408,7 +438,7 @@ export function ChallanPage({
                 rate: line.rate,
                 purchaseRate: Number(line.purchaseRate),
                 additionalRatePercent: Number(line.additionalRatePercent) || 0,
-                saleRate: line.saleRate,
+                saleRate: Number(line.saleRate) || 0,
                 amount: lineAmount(line),
                 brand: line.brand,
                 category: line.category,
@@ -419,7 +449,7 @@ export function ChallanPage({
                 rate: lineRate(line),
                 purchaseRate: Number(line.purchaseRate),
                 additionalRatePercent: Number(line.additionalRatePercent) || 0,
-                saleRate: line.saleRate,
+                saleRate: Number(line.saleRate) || 0,
                 amount: lineAmount(line),
                 brand: line.brand,
                 category: line.category,
@@ -651,6 +681,7 @@ export function ChallanPage({
                             options={itemAttributes.brands}
                             onAdd={(value) => addItemAttribute("brand", value)}
                             required={false}
+                            searchable
                           />
                         )}
                         {!line.labelOnly && (
@@ -666,6 +697,7 @@ export function ChallanPage({
                               addItemAttribute("category", value)
                             }
                             required={false}
+                            searchable
                           />
                         )}
                         <Field
@@ -745,28 +777,49 @@ export function ChallanPage({
                                           ? ""
                                           : Number(event.target.value),
                                     }
-                                  : { saleRate: Number(event.target.value) },
+                                  : {
+                                      saleRate:
+                                        event.target.value === ""
+                                          ? ""
+                                          : Number(event.target.value),
+                                    },
                               )
                             }
                           />
                         </Field>
                         <Field
-                          label="Additional %"
+                          label="Percent"
                           id={`challan-trading-rate-percent-${index}`}
                         >
-                          <Input
-                            id={`challan-trading-rate-percent-${index}`}
-                            type="number"
-                            min="-100"
-                            step="any"
-                            required
-                            value={line.additionalRatePercent}
-                            onChange={(event) =>
-                              setLine(index, {
-                                additionalRatePercent: event.target.value,
-                              })
-                            }
-                          />
+                          <InputGroup className="h-9">
+                            <InputGroupInput
+                              id={`challan-trading-rate-percent-${index}`}
+                              type="number"
+                              min="0"
+                              max={
+                                Number(line.additionalRatePercent) < 0
+                                  ? 100
+                                  : undefined
+                              }
+                              step="any"
+                              required
+                              value={
+                                line.additionalRatePercent === ""
+                                  ? ""
+                                  : Math.abs(
+                                      Number(line.additionalRatePercent),
+                                    )
+                              }
+                              onChange={(event) =>
+                                setLine(index, {
+                                  additionalRatePercent: event.target.value,
+                                })
+                              }
+                            />
+                            <InputGroupAddon align="inline-end">
+                              %
+                            </InputGroupAddon>
+                          </InputGroup>
                         </Field>
                         <Field
                           label="Total"

@@ -258,17 +258,9 @@ export function ManualPage() {
         <CardContent className="space-y-3 text-sm">
           <ol className={steps}>
             <li>
-              Use <strong>Journal Voucher</strong> for a double-entry record. Add at least two account lines; each
-              line has a debit or credit, and total debits must equal total
-              credits.
-            </li>
-            <li>
-              Use <strong>Payment / Receipt</strong> for a cash or bank movement
-              between an account and a party. Choose the party and cash/bank
-              account, enter the date and amount, review, then save.
-            </li>
-            <li>
-              Use the search and filters on <strong>Payment / Receipt</strong> to find saved entries. Use global search when looking across different record types.
+              Use <strong>Payment / Receipt</strong> for a double-entry record.
+              Add at least two account lines; each line has a debit or credit,
+              and total debits must equal total credits.
             </li>
             <li>
               In <strong>Cheque Detail</strong>, choose a bank and party, then

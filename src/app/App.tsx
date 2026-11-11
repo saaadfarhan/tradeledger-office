@@ -183,7 +183,6 @@ const navigationGroups: Array<{
       "purchase",
       "sale",
       "journal",
-      "payment",
       "cheques",
     ],
   },
@@ -251,8 +250,8 @@ function recordSearchScore(record: SearchRecord, query: string) {
     sale: ["sale-challan"],
     cheque: ["cheque"],
     journal: ["voucher", "journal-voucher"],
-    payment: ["payment", "receipt"],
-    receipt: ["receipt"],
+    payment: ["journal-voucher"],
+    receipt: ["journal-voucher"],
     opening: ["opening-balance"],
     transfer: ["transfer"],
     "purchase-challan": ["purchase-challan"],
@@ -431,16 +430,13 @@ export function App() {
       setBusy(true);
       try {
         const can = (name: Page) => Boolean(currentSession && (
-          currentSession.permissions.includes(pageNames[name]) ||
-          (name === "payment" && currentSession.permissions.includes(pageNames.paymentView))
+          currentSession.permissions.includes(pageNames[name])
         ));
         const canPrint = [
           "company",
           "purchase",
           "sale",
           "journal",
-          "payment",
-          "paymentView",
           "reports",
         ].some((name) => can(name as Page));
         const [
@@ -464,8 +460,7 @@ export function App() {
           can("purchase") ||
           can("sale") ||
           can("reports") ||
-          can("journal") ||
-          can("payment")
+          can("journal")
             ? window.office.accounts.list()
             : [],
           can("items") || can("purchase") || can("sale") || can("reports")
@@ -482,7 +477,7 @@ export function App() {
                   ? window.office.challans.list("SALE")
                   : Promise.resolve([]),
               ]).then((groups) => groups.flat()),
-          can("cheques") || can("journal") || can("payment") || can("reports") ? window.office.cheques.list() : [],
+          can("cheques") || can("journal") || can("reports") ? window.office.cheques.list() : [],
           can("items") ||
           can("purchase") ||
           can("sale") ||
@@ -502,8 +497,7 @@ export function App() {
             ? window.office.stock.movements()
             : [],
           can("reports") ||
-          can("journal") ||
-          can("payment")
+          can("journal")
             ? window.office.vouchers.list()
             : [],
         ]);
@@ -720,8 +714,7 @@ export function App() {
       nextPage === "database" ||
       nextPage === "company"
         ? isAdministrator
-        : session?.permissions.includes(pageNames[nextPage]) ||
-          (nextPage === "payment" && session?.permissions.includes(pageNames.paymentView)))
+        : session?.permissions.includes(pageNames[nextPage]))
     ) {
       toast.error("Your account does not have access to that page");
       return;
@@ -867,8 +860,7 @@ export function App() {
     },
     { id: "transfer" as const, label: "Transfer", icon: ArrowLeftRight },
     { id: "cheques" as const, label: "Cheque Detail", icon: WalletCards },
-    { id: "journal" as const, label: "Journal Voucher", icon: FileClock },
-    { id: "payment" as const, label: "Payment / Receipt", icon: WalletCards },
+    { id: "journal" as const, label: "Payment / Receipt", icon: WalletCards },
     {
       id: "purchase" as const,
       label: "Purchase Challans",
@@ -920,9 +912,7 @@ export function App() {
   const permittedNav = nav.filter(({ id }) =>
     id === "users" || id === "database" || id === "company"
       ? isAdministrator
-      : id === "payment"
-        ? session.permissions.includes(pageNames.payment) || session.permissions.includes(pageNames.paymentView)
-        : id === "settings" ||
+      : id === "settings" ||
         id === "keybindings" ||
         session.permissions.includes(pageNames[id]),
   );
@@ -988,32 +978,27 @@ export function App() {
         amount: String(row.amount),
       },
     })),
-    ...vouchers.map((row) => {
-      const page: Page =
-        row.type === "JOURNAL VOUCHER" || row.type === "VOUCHER"
-          ? "journal"
-          : "payment";
-      return {
-        page,
-        title: `${row.number} — ${row.narration || row.type}`,
-        detail: `${row.type} · ${row.date}`,
-        kind:
-          row.type === "JOURNAL VOUCHER" || row.type === "VOUCHER"
-            ? "journal-voucher"
-            : row.type.toLowerCase(),
-        fields: {
-          number: row.number,
-          type: row.type,
-          date: row.date,
-          reference: row.reference,
-          narration: row.narration,
-          account: row.lines.map((line) => line.accountCode).join(" "),
-          amount: row.lines.map((line) => line.debit + line.credit).join(" "),
-          chequeNumber: [row.chequeNumber ?? "", ...row.lines.map((line) => line.chequeNumber ?? "")].join(" "),
-          paymentMethod: row.lines.map((line) => line.paymentMethod ?? "").join(" "),
-        },
-      };
-    }),
+    ...vouchers
+      .filter((row) => row.type === "JOURNAL VOUCHER" || row.type === "VOUCHER")
+      .map((row) => {
+        return {
+          page: "journal" as const,
+          title: `${row.number} — ${row.narration || row.type}`,
+          detail: `${row.type} · ${row.date}`,
+          kind: "journal-voucher",
+          fields: {
+            number: row.number,
+            type: row.type,
+            date: row.date,
+            reference: row.reference,
+            narration: row.narration,
+            account: row.lines.map((line) => line.accountCode).join(" "),
+            amount: row.lines.map((line) => line.debit + line.credit).join(" "),
+            chequeNumber: [row.chequeNumber ?? "", ...row.lines.map((line) => line.chequeNumber ?? "")].join(" "),
+            paymentMethod: row.lines.map((line) => line.paymentMethod ?? "").join(" "),
+          },
+        };
+      }),
     ...openingBalances.map((row) => ({
       page: "opening" as const,
       title: `${row.itemCode} — ${row.itemDescription ?? "Opening balance"}`,
@@ -1055,7 +1040,7 @@ export function App() {
     { key: "accounts", label: "Accounts & banks", kinds: ["account", "bank"] },
     { key: "items", label: "Items", kinds: ["item"] },
     { key: "challans", label: "Challans", kinds: ["purchase-challan", "sale-challan"] },
-    { key: "vouchers", label: "Vouchers & payments", kinds: ["voucher", "journal-voucher", "payment", "receipt"] },
+    { key: "vouchers", label: "Vouchers", kinds: ["voucher", "journal-voucher"] },
     { key: "cheques", label: "Cheques", kinds: ["cheque"] },
     { key: "stock", label: "Stock activity", kinds: ["opening-balance", "transfer"] },
   ].map((group) => ({
@@ -1646,18 +1631,15 @@ export function App() {
                   }}
                 />
               )}
-              {(page === "journal" || page === "payment") && (
+              {page === "journal" && (
                 <Suspense fallback={<PageLoading />}>
                   <VoucherEntryPage
-                    type={page === "journal" ? "JOURNAL VOUCHER" : "PAYMENT"}
-                    readOnly={page === "payment" && !session.permissions.includes(pageNames.payment)}
+                    type="JOURNAL VOUCHER"
                     accounts={accounts}
                     banks={banks}
                     cheques={cheques}
                     vouchers={vouchers.filter((row) =>
-                      page === "journal"
-                        ? row.type === "VOUCHER" || row.type === "JOURNAL VOUCHER"
-                        : row.type === "PAYMENT" || row.type === "RECEIPT",
+                      row.type === "VOUCHER" || row.type === "JOURNAL VOUCHER",
                     )}
                     company={companyProfile}
                     logo={companyLogo}

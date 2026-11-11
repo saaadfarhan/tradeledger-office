@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Plus, X } from "lucide-react";
+import { Check, ChevronDown, Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
@@ -310,6 +310,7 @@ export function PersistentSelectField({
   emptyLabel,
   showEmptyHint = true,
   disableWhenEmpty = true,
+  searchable = false,
 }: {
   label?: string;
   id: string;
@@ -323,9 +324,11 @@ export function PersistentSelectField({
   emptyLabel?: string;
   showEmptyHint?: boolean;
   disableWhenEmpty?: boolean;
+  searchable?: boolean;
 }) {
   const [saving, setSaving] = React.useState(false);
   const [open, setOpen] = React.useState(false);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [draft, setDraft] = React.useState("");
   const selectedIsSaved = options.some(
     (option) => option.toLocaleLowerCase() === value.trim().toLocaleLowerCase(),
@@ -362,28 +365,75 @@ export function PersistentSelectField({
       setSaving(false);
     }
   }
+  const selectControl = searchable ? (
+    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={pickerOpen}
+            className={`h-9 w-full min-w-0 justify-between px-3 font-normal ${triggerClassName ?? ""}`}
+          />
+        }
+      >
+        <span className={value ? "truncate text-left" : "truncate text-left text-muted-foreground"}>
+          {value || `Select ${label?.toLowerCase() || "option"}`}
+        </span>
+        <ChevronDown data-icon="inline-end" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-0">
+        <Command>
+          <CommandInput placeholder={`Search ${label?.toLowerCase() || "options"}…`} />
+          <CommandList>
+            <CommandEmpty>{emptyHint ?? `No ${label?.toLowerCase() || "options"} found.`}</CommandEmpty>
+            <CommandGroup>
+              {value && (
+                <CommandItem value="clear selection" onSelect={() => {
+                  onChange("");
+                  setPickerOpen(false);
+                  focusNextFormControlAfterSelection(id);
+                }}>
+                  Clear selection
+                </CommandItem>
+              )}
+              {options.map((option) => (
+                <CommandItem key={option} value={option} onSelect={() => {
+                  onChange(option);
+                  setPickerOpen(false);
+                  focusNextFormControlAfterSelection(id);
+                }}>
+                  <span className="truncate">{option}</span>
+                  {value === option && <Check data-slot="select-item-indicator" className="ml-auto" />}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  ) : (
+    <FormSelect
+      id={id}
+      value={value}
+      onChange={onChange}
+      options={options.map((option) => ({ value: option, label: option }))}
+      placeholder={`Select ${label?.toLowerCase() || "option"}`}
+      clearable={false}
+      triggerClassName={triggerClassName}
+      emptyLabel={emptyLabel}
+      showEmptyHint={showEmptyHint}
+      disableWhenEmpty={disableWhenEmpty}
+      emptyHint={emptyHint ?? `Add a ${label?.toLowerCase() || "option"} to begin.`}
+    />
+  );
   return (
     <Field label={label!} id={id} required={required} className="min-w-0">
       <div className="flex min-w-0 gap-2">
         <div className="min-w-0 flex-1">
-          <FormSelect
-            id={id}
-            value={value}
-            onChange={onChange}
-            options={options.map((option) => ({
-              value: option,
-              label: option,
-            }))}
-            placeholder={`Select ${label?.toLowerCase() || "option"}`}
-            clearable={false}
-            triggerClassName={triggerClassName}
-            emptyLabel={emptyLabel}
-            showEmptyHint={showEmptyHint}
-            disableWhenEmpty={disableWhenEmpty}
-            emptyHint={
-              emptyHint ?? `Add a ${label?.toLowerCase() || "option"} to begin.`
-            }
-          />
+          {selectControl}
         </div>
         {onAdd && (
           <Button
