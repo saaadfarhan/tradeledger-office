@@ -66,6 +66,7 @@ export function MasterPage({
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             data-operator-search
+            title="Focus search (Ctrl+F)"
             className="pl-9"
             placeholder="Search records"
             value={search}
@@ -718,7 +719,7 @@ export function MasterTable({
               {rows.length} record{rows.length === 1 ? "" : "s"}
             </CardDescription>
           </div>
-          <Button data-operator-new onClick={() => void startCreate()}>
+          <Button data-operator-new title={`${createLabel} (Ctrl+N)`} onClick={() => void startCreate()}>
             <Plus data-icon="inline-start" />
             {createLabel}
           </Button>
@@ -971,7 +972,7 @@ export function MasterTable({
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button data-operator-save onClick={() => void submit()} disabled={saving}>
+            <Button data-operator-save title="Save changes (Ctrl+S)" onClick={() => void submit()} disabled={saving}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </DialogFooter>

@@ -40,6 +40,7 @@ import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import { pageNames, permissionPages } from "@/app/navigation";
 import { Field } from "@/components/forms/Fields";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { focusNextFormControlAfterSelection } from "@/lib/form-navigation";
 
 export function UserRightsPage({
   currentUsername,
@@ -284,7 +285,7 @@ export function UserRightsPage({
             <RefreshCw data-icon="inline-start" />
             Refresh
           </Button>
-          <Button data-operator-new={activeTab === "users" ? "" : undefined} className="w-full sm:w-auto" size="sm" onClick={newUser}>
+          <Button data-operator-new={activeTab === "users" ? "" : undefined} title="New user (Ctrl+N)" className="w-full sm:w-auto" size="sm" onClick={newUser}>
             <Plus data-icon="inline-start" />
             New user
           </Button>
@@ -411,7 +412,7 @@ export function UserRightsPage({
                   Presets are shared with everyone connecting to this office.
                 </CardDescription>
               </div>
-              <Button data-operator-new={activeTab === "presets" ? "" : undefined} size="sm" variant="outline" onClick={() => editPreset()}>
+              <Button data-operator-new={activeTab === "presets" ? "" : undefined} title="Add preset (Ctrl+N)" size="sm" variant="outline" onClick={() => editPreset()}>
                 <Plus data-icon="inline-start" />
                 Add preset
               </Button>
@@ -477,7 +478,10 @@ export function UserRightsPage({
                     className="h-9 w-full min-w-0 rounded-md border bg-background px-4 text-sm"
                     required
                     value={deviceUser}
-                    onChange={(event) => setDeviceUser(event.target.value)}
+                    onChange={(event) => {
+                      setDeviceUser(event.target.value);
+                      focusNextFormControlAfterSelection("device-user");
+                    }}
                   >
                     <option value="">Select user…</option>
                     {users.map((user) => (
@@ -829,7 +833,7 @@ export function UserRightsPage({
                 <span className="hidden sm:block" />
               )}
               <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
-                <Button data-operator-save
+                <Button
                   className="w-full"
                   type="button"
                   variant="outline"
@@ -838,6 +842,8 @@ export function UserRightsPage({
                   Cancel
                 </Button>
                 <Button
+                  data-operator-save
+                  title={editing ? "Save changes (Ctrl+S)" : "Create user (Ctrl+S)"}
                   className="w-full"
                   type="submit"
                   disabled={
@@ -943,7 +949,7 @@ export function UserRightsPage({
               >
                 Cancel
               </Button>
-              <Button data-operator-save
+              <Button data-operator-save title="Save preset (Ctrl+S)"
                 type="submit"
                 disabled={!presetName.trim() || !presetPermissions.length}
               >

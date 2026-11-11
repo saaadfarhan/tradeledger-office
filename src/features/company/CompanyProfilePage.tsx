@@ -328,6 +328,7 @@ export function CompanyProfilePage({
         <Separator />
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button data-operator-save
+            title="Save (Ctrl+S)"
             className="w-full sm:w-auto"
             type="submit"
             disabled={saving || !values.name.trim()}

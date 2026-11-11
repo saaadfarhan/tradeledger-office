@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { focusNextFormControlAfterSelection } from "@/lib/form-navigation";
 
 function parseLocalDate(value: string): Date | undefined {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -45,6 +46,7 @@ export function DatePicker({
           <Button
             id={id}
             type="button"
+            data-enter-navigation-control
             variant="outline"
             disabled={disabled}
             aria-label={placeholder}
@@ -66,7 +68,10 @@ export function DatePicker({
           mode="single"
           selected={selected}
           onSelect={(date) => {
-            if (date) onChange(formatLocalDate(date));
+            if (date) {
+              onChange(formatLocalDate(date));
+              focusNextFormControlAfterSelection(id);
+            }
             setOpen(false);
           }}
         />

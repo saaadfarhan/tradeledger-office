@@ -46,7 +46,7 @@ export const pageNames: Record<Page, string> = {
   settings: "Settings",
   manual: "Manual",
   keybindings: "Keybindings",
-  search: "Search Results",
+  search: "Global Search",
 };
 
 export const permissionPages: Page[] = [

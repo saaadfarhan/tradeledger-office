@@ -22,10 +22,13 @@ function key(
   });
 }
 
-test("every listed shortcut is unique and the list includes reload and zoom controls", () => {
+test("every listed shortcut is unique and the list includes global actions and zoom controls", () => {
   const shortcuts = APP_KEYBINDINGS.map(({ keys }) => keys);
   assert.equal(new Set(shortcuts).size, shortcuts.length);
   for (const action of [
+    "globalSearch",
+    "closeDialog",
+    "refresh",
     "reload",
     "forceReload",
     "zoomIn",
@@ -49,6 +52,10 @@ test("reload and zoom shortcuts distinguish the intended combinations", () => {
 
 test("navigation, command, and editing shortcuts resolve to actions", () => {
   assert.equal(key("k", { metaKey: true }), "search");
+  assert.equal(key("f", { ctrlKey: true, shiftKey: true }), "globalSearch");
+  assert.equal(key("f", { ctrlKey: true }), "focusSearch");
+  assert.equal(key("F5"), "refresh");
+  assert.equal(key("Escape"), "closeDialog");
   assert.equal(key("ArrowLeft", { altKey: true }), "back");
   assert.equal(key("ArrowRight", { altKey: true }), "forward");
   assert.equal(key("Home", { altKey: true }), "home");

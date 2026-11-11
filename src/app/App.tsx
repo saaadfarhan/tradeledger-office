@@ -471,7 +471,7 @@ export function App() {
           can("items") || can("purchase") || can("sale") || can("reports")
             ? window.office.items.list()
             : [],
-          can("banks") || can("cheques") ? window.office.banks.list() : [],
+          can("banks") || can("cheques") || can("journal") ? window.office.banks.list() : [],
           can("reports") || (can("purchase") && can("sale"))
             ? window.office.challans.list()
             : Promise.all([
@@ -607,6 +607,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const action = matchAppKeybinding(event);
       if (!action) return;
+      if (action === "closeDialog") return;
       if (action === "focusSearch") {
         if (openOverlays().length) return;
         const searchInput = [...document.querySelectorAll<HTMLInputElement>("input[data-operator-search]")]
@@ -622,6 +623,9 @@ export function App() {
         case "search":
           setPaletteQuery("");
           setPaletteOpen(true);
+          break;
+        case "globalSearch":
+          openGlobalSearch();
           break;
         case "newRecord": {
           if (openOverlays().length) break;
@@ -646,6 +650,9 @@ export function App() {
           break;
         case "keybindings":
           navigate("keybindings");
+          break;
+        case "refresh":
+          if (session && !openOverlays().length) void refresh();
           break;
         case "quit":
           setConfirmAction("quit");
@@ -730,6 +737,17 @@ export function App() {
       return;
     }
     commitNavigation(nextPage);
+  };
+  const openGlobalSearch = () => {
+    navigate("search");
+    requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        "input[data-global-search]",
+      );
+      if (!input || !input.getClientRects().length || input.disabled) return;
+      input.focus();
+      input.select();
+    });
   };
   const visitHistory = (next: number) => {
     const target = history[next];
@@ -1026,15 +1044,6 @@ export function App() {
         },
       })),
   ].filter((row) => session.permissions.includes(pageNames[row.page]));
-  const allMatchedRecords =
-    paletteQuery.trim().length > 0
-      ? searchableRecords
-          .map((row, index) => ({ row, index, score: recordSearchScore(row, paletteQuery) }))
-          .filter((match): match is { row: SearchRecord; index: number; score: number } => match.score !== null)
-          .sort((a, b) => a.score - b.score || a.index - b.index)
-          .map(({ row }) => row)
-      : [];
-  const matchedRecords = allMatchedRecords.slice(0, 30);
   const searchPageRecords = searchResultsQuery.trim()
     ? searchableRecords
         .map((row, index) => ({ row, index, score: recordSearchScore(row, searchResultsQuery) }))
@@ -1064,12 +1073,10 @@ export function App() {
       <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
     </Button>
   );
-  const parsedPaletteQuery = searchParts(paletteQuery);
-  const searchTerms = parsedPaletteQuery.terms;
-  const hasSearchQualifier = parsedPaletteQuery.kinds.length > 0 || parsedPaletteQuery.fields.length > 0;
+  const paletteTerms = normalizeSearchText(paletteQuery).split(/\s+/).filter(Boolean);
   const matchesPaletteText = (value: string) => {
     const normalized = normalizeSearchText(value);
-    return searchTerms.length > 0 && searchTerms.every((term) => normalized.includes(term));
+    return paletteTerms.length > 0 && paletteTerms.every((term) => normalized.includes(term));
   };
 
   const filteredItems = items.filter((row) =>
@@ -1148,12 +1155,9 @@ export function App() {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Global search and commands"
-                title="Search / commands (Ctrl+K)"
-                onClick={() => {
-                  setPaletteQuery("");
-                  setPaletteOpen(true);
-                }}
+                aria-label="Global search"
+                title="Global search (Ctrl+Shift+F)"
+                onClick={openGlobalSearch}
               >
                 <Search />
               </Button>
@@ -1161,7 +1165,7 @@ export function App() {
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Refresh"
-                title="Refresh data"
+                title="Refresh data (F5)"
                 onClick={() => void refresh()}
                 disabled={busy}
               >
@@ -1176,6 +1180,16 @@ export function App() {
                 onClick={() => navigate("manual")}
               >
                 <BookOpen />
+              </Button>
+              <Button
+                className="hidden sm:inline-flex"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Keybindings"
+                title="Keybindings (F1)"
+                onClick={() => navigate("keybindings")}
+              >
+                <Keyboard />
               </Button>
               <Button
                 className="hidden sm:inline-flex"
@@ -1416,9 +1430,9 @@ export function App() {
               {page === "search" && (
                 <section className="flex flex-col gap-4">
                   <PageHeader
-                    title="Search results"
+                    title="Global search"
                     description={searchResultsQuery ? `Matches for “${searchResultsQuery}”. Select a result to open its section.` : "Search across the records your account can access."}
-                    actions={<div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input data-operator-search className="pl-9" aria-label="Search all records" placeholder="Name, number, party, or filter" value={searchResultsQuery} onChange={(event) => { setSearchResultsQuery(event.target.value); setSearchResultKind("all"); }} /></div>}
+                    actions={<div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input data-operator-search data-global-search title="Focus search (Ctrl+F)" className="pl-9" aria-label="Search all records" placeholder="Name, number, party, or filter" value={searchResultsQuery} onChange={(event) => { setSearchResultsQuery(event.target.value); setSearchResultKind("all"); }} /></div>}
                   />
                   {searchResultsQuery.trim() ? (
                     <>
@@ -1615,14 +1629,6 @@ export function App() {
                     await window.office.challans.remove(number);
                     await refresh();
                   }}
-                  onCreateItem={async (item) => {
-                    const saved = await window.office.items.createForChallan({
-                      type: page === "purchase" ? "PURCHASE" : "SALE",
-                      item,
-                    });
-                    await refresh();
-                    return saved;
-                  }}
                 />
               )}
               {page === "cheques" && (
@@ -1646,6 +1652,7 @@ export function App() {
                     type={page === "journal" ? "JOURNAL VOUCHER" : "PAYMENT"}
                     readOnly={page === "payment" && !session.permissions.includes(pageNames.payment)}
                     accounts={accounts}
+                    banks={banks}
                     cheques={cheques}
                     vouchers={vouchers.filter((row) =>
                       page === "journal"
@@ -1658,6 +1665,11 @@ export function App() {
                       await window.office.vouchers.save(value);
                       await refresh();
                       toast.success(`${value.type} saved`);
+                    }}
+                    onCreateCheque={async (value) => {
+                      const saved = await window.office.cheques.save(value);
+                      await refresh();
+                      return saved;
                     }}
                     onDelete={async (number) => {
                       await window.office.vouchers.remove(number);
@@ -1739,25 +1751,26 @@ export function App() {
           <CommandDialog
             open={paletteOpen}
             onOpenChange={setPaletteOpen}
-            title="Navigation and global search"
-            description="Search permitted pages and records. Try type:sale, in:party Junaid, or in:date 2026-11-07."
+            title="Navigation"
+            description="Search permitted pages and reports."
           >
             <Command value={undefined} shouldFilter={false}>
               <CommandInput
-                placeholder="Try: 5245451 · in:party Junaid · type:sale"
+                placeholder="Search pages and reports..."
                 value={paletteQuery}
                 onValueChange={setPaletteQuery}
               />
               <CommandList>
-                {paletteQuery.trim() && <CommandEmpty>No matches. Try a name, record number, or a filter such as <span className="font-mono">in:party</span>.</CommandEmpty>}
-                {paletteQuery.trim() && <CommandGroup heading="Search"><CommandItem value={`all search results ${paletteQuery}`} onSelect={() => { setSearchResultsQuery(paletteQuery.trim()); setSearchResultKind("all"); navigate("search"); }}><Search />View all {allMatchedRecords.length} record results<CommandShortcut>Enter</CommandShortcut></CommandItem></CommandGroup>}
-                {!hasSearchQualifier && permittedNav.filter(
-                  ({ label }) => !paletteQuery.trim() || matchesPaletteText(label),
+                <CommandEmpty>No matching pages or reports.</CommandEmpty>
+                {permittedNav.filter(
+                  ({ label }) =>
+                    !paletteQuery.trim() || matchesPaletteText(label),
                 ).length > 0 && (
                   <CommandGroup heading="Pages">
                     {permittedNav
                       .filter(
-                        ({ label }) => !paletteQuery.trim() || matchesPaletteText(label),
+                        ({ label }) =>
+                          !paletteQuery.trim() || matchesPaletteText(label),
                       )
                       .map(({ id, label, icon: Icon }) => (
                         <CommandItem
@@ -1772,27 +1785,7 @@ export function App() {
                       ))}
                   </CommandGroup>
                 )}
-                {matchedRecords.length > 0 && (
-                  <>
-                    <CommandSeparator />
-                    <CommandGroup
-                      heading={`Records · ${matchedRecords.length} shown`}
-                    >
-                      {matchedRecords.map((record) => (
-                        <CommandItem
-                          key={`${record.page}-${record.title}`}
-                          value={`${record.title} ${record.detail}`}
-                          onSelect={() => navigate(record.page)}
-                        >
-                          <Search />
-                          {record.title}
-                          <CommandShortcut>{record.detail}</CommandShortcut>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </>
-                )}
-                {!hasSearchQualifier && isAllowed("reports") &&
+                {isAllowed("reports") &&
                   REPORT_NAMES.filter(
                     (name) =>
                       !paletteQuery.trim() || matchesPaletteText(name),
@@ -1820,71 +1813,6 @@ export function App() {
                       </CommandGroup>
                     </>
                   )}
-                {(!paletteQuery.trim() || (searchTerms.length > 0 && matchesPaletteText("purchase purchase challans buy sale sales challans sell database backup export verify tools refresh reload data home overview dashboard theme dark light appearance logout sign out"))) && <><CommandSeparator />
-                <CommandGroup heading="Common actions">
-                  {(!paletteQuery.trim() || matchesPaletteText("purchase purchase challans buy")) && <CommandItem
-                    value="open purchase challans"
-                    disabled={!isAllowed("purchase")}
-                    onSelect={() => navigate("purchase")}
-                  >
-                    <ArrowDownToLine />
-                    Open purchase challans
-                  </CommandItem>}
-                  {(!paletteQuery.trim() || matchesPaletteText("sale sales challans sell")) && <CommandItem
-                    value="open sale challans"
-                    disabled={!isAllowed("sale")}
-                    onSelect={() => navigate("sale")}
-                  >
-                    <ArrowUpFromLine />
-                    Open sale challans
-                  </CommandItem>}
-                  {(!paletteQuery.trim() || matchesPaletteText("database backup export verify tools")) && <CommandItem
-                    value="database backup export verify tools"
-                    disabled={!isAllowed("database")}
-                    onSelect={() => navigate("database")}
-                  >
-                    <Database />
-                    Database tools
-                  </CommandItem>}
-                  {(!paletteQuery.trim() || matchesPaletteText("refresh reload data")) && <CommandItem
-                    value="action refresh"
-                    onSelect={() => {
-                      setPaletteOpen(false);
-                      void refresh();
-                    }}
-                  >
-                    <RefreshCw />
-                    Refresh data
-                  </CommandItem>}
-                  {(!paletteQuery.trim() || matchesPaletteText("home overview dashboard")) && <CommandItem
-                    value="action home"
-                    onSelect={() => navigate("home")}
-                  >
-                    <Home />
-                    Go to overview
-                  </CommandItem>}
-                  {(!paletteQuery.trim() || matchesPaletteText("theme dark light appearance")) && <CommandItem
-                    value="action theme dark light"
-                    onSelect={() => {
-                      setDarkMode((current) => !current);
-                      setPaletteOpen(false);
-                    }}
-                  >
-                    {darkMode ? <Sun /> : <Moon />}
-                    {darkMode ? "Light theme" : "Dark theme"}
-                  </CommandItem>}
-                  {(!paletteQuery.trim() || matchesPaletteText("logout sign out")) && <CommandItem
-                    value="action logout"
-                    onSelect={() => {
-                      setPaletteOpen(false);
-                      setConfirmAction("logout");
-                    }}
-                  >
-                    <LogOut />
-                    Log out
-                  </CommandItem>}
-                </CommandGroup>
-                </>}
               </CommandList>
             </Command>
           </CommandDialog>
@@ -1945,19 +1873,14 @@ export function App() {
           </Dialog>
           <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
             <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
+              <DialogHeader className="sr-only">
                 <DialogTitle>About</DialogTitle>
-                <DialogDescription>
-                  Company details saved for this office workspace.
-                </DialogDescription>
               </DialogHeader>
               <CompanyBusinessCard
                 company={companyProfile}
                 logo={companyLogo}
+                variant="card"
               />
-              <p className="text-center text-xs text-muted-foreground">
-                TradeLedger Office · Local SQLite desktop application
-              </p>
             </DialogContent>
           </Dialog>
           <AlertDialog
@@ -2025,14 +1948,18 @@ export function App() {
             <Home />
             Home<ContextMenuShortcut>Alt+Home</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuItem onClick={openGlobalSearch}>
+            <Search />
+            Global search<ContextMenuShortcut>Ctrl+Shift+F</ContextMenuShortcut>
+          </ContextMenuItem>
           <ContextMenuItem
             onClick={() => {
               setPaletteQuery("");
               setPaletteOpen(true);
             }}
           >
-            <Search />
-            Global search<ContextMenuShortcut>Ctrl+K</ContextMenuShortcut>
+            <Menu />
+            Navigation<ContextMenuShortcut>Ctrl+K</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onClick={() => navigate("keybindings")}>
             <Keyboard />
@@ -2042,7 +1969,7 @@ export function App() {
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => void refresh()} disabled={busy}>
           <RefreshCw />
-          Refresh data
+          Refresh data<ContextMenuShortcut>F5</ContextMenuShortcut>
         </ContextMenuItem>
         <ContextMenuItem onClick={() => runMenuAction("reload")}>
           <RefreshCw />

@@ -581,7 +581,7 @@ function registerIpc() {
       default: throw new Error('Unsupported application menu action')
     }
   })
-  registerHandler('ids:next', (entity) => officeStore.nextId(String(entity)), (entity) => ({ account: 'Chart of Accounts', item: 'Items', bank: 'Banks', purchaseChallan: 'Purchase Challans', saleChallan: 'Sale Challans', cheque: 'Cheque Detail', transfer: 'Transfer', voucher: ['Journal Voucher', 'Payment / Receipt'] })[entity] || null)
+  registerHandler('ids:next', (entity) => officeStore.nextId(String(entity)), (entity) => ({ account: 'Chart of Accounts', item: 'Items', bank: 'Banks', purchaseChallan: 'Purchase Challans', saleChallan: 'Sale Challans', cheque: ['Cheque Detail', 'Journal Voucher'], transfer: 'Transfer', voucher: ['Journal Voucher', 'Payment / Receipt'] })[entity] || null)
   registerHandler('dashboard:get', (_payload, session) => officeStore.getDashboard(session.permissions), 'Overview')
   registerHandler('company:get', () => officeStore.getCompanyProfile(), ['Company Profile', 'Purchase Challans', 'Sale Challans', 'Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
   registerHandler('company:save', (value) => officeStore.saveCompanyProfile(value), 'User Rights')
@@ -606,12 +606,8 @@ function registerIpc() {
   registerHandler('items:category:rename', (oldName, newName) => officeStore.renameItemCategory(oldName, newName), 'Categories')
   registerHandler('items:category:delete', (name) => officeStore.deleteItemCategory(name), 'Categories')
   registerHandler('items:save', (value) => officeStore.saveItem(value), 'Items')
-  registerHandler('items:create-for-challan', (value) => {
-    if (!['PURCHASE', 'SALE'].includes(String(value?.type || '').toUpperCase())) throw new Error('Choose a valid challan type')
-    return officeStore.createItemFromChallan(value.item || {})
-  }, (value) => String(value?.type || '').toUpperCase() === 'SALE' ? 'Sale Challans' : 'Purchase Challans')
   registerHandler('items:remove', (code) => officeStore.deleteItem(String(code)), 'Items')
-  registerHandler('banks:list', () => officeStore.listBanks(), ['Banks', 'Cheque Detail'])
+  registerHandler('banks:list', () => officeStore.listBanks(), ['Banks', 'Cheque Detail', 'Journal Voucher'])
   registerHandler('banks:save', (value) => officeStore.saveBank(value), 'Banks')
   registerHandler('banks:remove', (code) => officeStore.deleteBank(String(code)), 'Banks')
   registerHandler('challans:list', (type) => officeStore.listChallans(type ? String(type) : null), (type) => type === 'SALE' ? ['Sale Challans', 'Reports'] : type === 'PURCHASE' ? ['Purchase Challans', 'Reports'] : ['Purchase Challans', 'Sale Challans', 'Reports'])
@@ -619,7 +615,7 @@ function registerIpc() {
   registerHandler('challans:update', (value) => officeStore.updateChallan(value), (value) => value?.type === 'SALE' ? 'Sale Challans' : 'Purchase Challans')
   registerHandler('challans:remove', (number) => officeStore.deleteChallan(String(number)), (number) => officeStore.getChallanType(String(number)) === 'SALE' ? 'Sale Challans' : 'Purchase Challans')
   registerHandler('cheques:list', () => officeStore.listCheques(), ['Cheque Detail', 'Journal Voucher', 'Payment / Receipt', 'Payment / Receipt (view only)', 'Reports'])
-  registerHandler('cheques:save', (value) => officeStore.saveCheque(value), 'Cheque Detail')
+  registerHandler('cheques:save', (value) => officeStore.saveCheque(value), ['Cheque Detail', 'Journal Voucher'])
   registerHandler('cheques:remove', (number) => officeStore.deleteCheque(String(number)), 'Cheque Detail')
   registerHandler('vouchers:list', () => {
     if (activeSession.permissions.includes('Reports')) return officeStore.listVouchers()

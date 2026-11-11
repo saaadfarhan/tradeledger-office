@@ -420,31 +420,36 @@
 }
 .print-challan .print-table th:nth-child(1),
 .print-challan .print-table td:nth-child(1) {
-  width: 7%;
+  width: 6%;
   text-align: center;
 }
 .print-challan .print-table th:nth-child(2),
 .print-challan .print-table td:nth-child(2) {
-  width: 15%;
+  width: 12%;
 }
 .print-challan .print-table th:nth-child(3),
 .print-challan .print-table td:nth-child(3) {
-  width: 37%;
+  width: 28%;
 }
 .print-challan .print-table th:nth-child(4),
 .print-challan .print-table td:nth-child(4) {
-  width: 13%;
-  text-align: right;
+  width: 10%;
 }
 .print-challan .print-table th:nth-child(5),
 .print-challan .print-table td:nth-child(5) {
-  width: 14%;
-  text-align: right;
-  white-space: nowrap;
+  width: 11%;
 }
 .print-challan .print-table th:nth-child(6),
 .print-challan .print-table td:nth-child(6) {
-  width: 14%;
+  width: 11%;
+  text-align: center;
+  white-space: nowrap;
+}
+.print-challan .print-table th:nth-child(7),
+.print-challan .print-table td:nth-child(7),
+.print-challan .print-table th:nth-child(8),
+.print-challan .print-table td:nth-child(8) {
+  width: 11%;
   text-align: right;
   white-space: nowrap;
 }
@@ -460,6 +465,7 @@
   border-top: 0;
   padding: 3mm 4mm;
   font-size: 11pt;
+  break-inside: avoid;
 }
 .print-challan-signatures {
   display: flex;
@@ -468,6 +474,7 @@
   margin-top: 24mm;
   color: #444;
   font-size: 8.5pt;
+  break-inside: avoid;
 }
 .print-challan-signatures span {
   min-width: 35mm;

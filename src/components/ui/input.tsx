@@ -2,10 +2,33 @@ import * as React from "react"
 import { Input as InputPrimitive } from "@base-ui/react/input"
 import { Eye, EyeOff } from "lucide-react"
 import { cn } from "cn"
+import { focusNextFormControl } from "@/lib/form-navigation"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({
+  className,
+  type,
+  onKeyDown,
+  ...props
+}: React.ComponentProps<"input">) {
   const [showPassword, setShowPassword] = React.useState(false)
   const isPassword = type === 'password'
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    onKeyDown?.(event);
+    if (
+      event.defaultPrevented ||
+      event.key !== "Enter" ||
+      event.nativeEvent.isComposing ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      ["button", "checkbox", "file", "radio", "reset", "submit"].includes(
+        event.currentTarget.type,
+      )
+    )
+      return;
+    if (focusNextFormControl(event.currentTarget)) event.preventDefault();
+  }
   const input = <InputPrimitive
       type={isPassword && showPassword ? 'text' : type}
       data-slot="input"
@@ -14,6 +37,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         isPassword && 'pr-10',
         className
       )}
+      onKeyDown={handleKeyDown}
       {...props}
     />
   if (!isPassword) return input

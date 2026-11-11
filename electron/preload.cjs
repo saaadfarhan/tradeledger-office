@@ -106,7 +106,6 @@ contextBridge.exposeInMainWorld('office', Object.freeze({
     renameCategory: (oldName, newName) => invoke('items:category:rename', oldName, newName),
     deleteCategory: (name) => invoke('items:category:delete', name),
     save: (value) => invoke('items:save', value),
-    createForChallan: (value) => invoke('items:create-for-challan', value),
     remove: (code) => invoke('items:remove', code),
   },
   banks: {

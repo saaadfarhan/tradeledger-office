@@ -15,6 +15,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -75,7 +76,6 @@ export function ChallanPage({
   onPost,
   onUpdate,
   onDelete,
-  onCreateItem,
 }: {
   type: "PURCHASE" | "SALE";
   rows: Challan[];
@@ -89,6 +89,7 @@ export function ChallanPage({
     number: string;
     type: string;
     date: string;
+    description: string;
     party: string;
     location: string;
     lines: ChallanInputLine[];
@@ -97,42 +98,44 @@ export function ChallanPage({
     number: string;
     type: string;
     date: string;
+    description: string;
     party: string;
     location: string;
     lines: ChallanInputLine[];
     __baseline?: Partial<Challan>;
   }) => Promise<void>;
   onDelete: (number: string) => Promise<void>;
-  onCreateItem: (value: Omit<Item, "code" | "stockQuantity">) => Promise<Item>;
 }) {
   type DraftLine = {
     itemCode: string;
     itemLabel: string;
     labelOnly: boolean;
-    quantity: number;
+    quantity: number | "";
     rate: number;
-    appliedAmount: number;
-    amountEdited: boolean;
+    purchaseRate: number | "";
+    additionalRatePercent: string;
+    saleRate: number;
     brand: string;
     category: string;
   };
+  const emptyLine = (): DraftLine => ({
+    itemCode: "",
+    itemLabel: "",
+    labelOnly: false,
+    quantity: 1,
+    rate: 0,
+    purchaseRate: 0,
+    additionalRatePercent: "",
+    saleRate: 0,
+    brand: "",
+    category: "",
+  });
   const [number, setNumber] = useState("");
   const [date, setDate] = useState(today());
+  const [challanDescription, setChallanDescription] = useState("");
   const [party, setParty] = useState("");
   const [location, setLocation] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([
-    {
-      itemCode: "",
-      itemLabel: "",
-      labelOnly: false,
-      quantity: 1,
-      rate: 0,
-      appliedAmount: 0,
-      amountEdited: false,
-      brand: "",
-      category: "",
-    },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
   const [posting, setPosting] = useState(false);
   const [reservingNumber, setReservingNumber] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -141,17 +144,6 @@ export function ChallanPage({
   const [deleteNumber, setDeleteNumber] = useState<string | null>(null);
   const [printChallan, setPrintChallan] = useState<Challan | null>(null);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
-  const [createItemOpen, setCreateItemOpen] = useState(false);
-  const [createItemTarget, setCreateItemTarget] = useState<number | null>(null);
-  const [itemDescription, setItemDescription] = useState("");
-  const [itemBrand, setItemBrand] = useState("");
-  const [itemCategory, setItemCategory] = useState("");
-  const [itemUnit, setItemUnit] = useState("Unit");
-  const [itemPurchaseRate, setItemPurchaseRate] = useState("0");
-  const [itemRate, setItemRate] = useState("0");
-  const [itemSaleRate, setItemSaleRate] = useState("0");
-  const [createItemOneOff, setCreateItemOneOff] = useState(false);
-  const [creatingItem, setCreatingItem] = useState(false);
   const [itemAttributes, setItemAttributes] = useState<ItemAttributes>({
     brands: [],
     categories: [],
@@ -184,19 +176,8 @@ export function ChallanPage({
       setBaseline(null);
       setNumber(await window.office.ids.next(idKind));
       setDate(today());
-      setLines([
-        {
-          itemCode: "",
-          itemLabel: "",
-          labelOnly: false,
-          quantity: 1,
-          rate: 0,
-          appliedAmount: 0,
-          amountEdited: false,
-          brand: "",
-          category: "",
-        },
-      ]);
+      setChallanDescription("");
+      setLines([emptyLine()]);
       setEditorOpen(true);
     } catch (error) {
       toast.error(
@@ -247,11 +228,11 @@ export function ChallanPage({
       return [
         String(index + 1),
         line.itemCode || "—",
-        item?.description ?? line.itemLabel ?? "",
+        item?.description || line.itemLabel || "",
         line.brand || item?.brand || "—",
         line.category || item?.category || "—",
         `${line.quantity}${item?.unit ? ` ${item.unit}` : ""}`,
-        money(line.rate),
+        money(type === "PURCHASE" ? line.purchaseRate : line.saleRate),
         money(line.amount),
       ];
     }) ?? [];
@@ -267,35 +248,100 @@ export function ChallanPage({
           );
           next.brand = selectedItem?.brand ?? "";
           next.category = selectedItem?.category ?? "";
-          next.rate = selectedItem ? (type === "PURCHASE" ? selectedItem.purchaseRate : selectedItem.saleRate) : 0;
-          next.appliedAmount = next.quantity * next.rate;
-          next.amountEdited = false;
+          next.rate = selectedItem
+            ? type === "PURCHASE"
+              ? selectedItem.purchaseRate
+              : selectedItem.saleRate
+            : 0;
+          next.purchaseRate = selectedItem?.purchaseRate ?? 0;
+          next.saleRate = selectedItem?.saleRate ?? 0;
+          const activeRate =
+            type === "PURCHASE" ? next.purchaseRate : next.saleRate;
+          next.additionalRatePercent = String(
+            next.rate > 0 ? (activeRate * 100) / next.rate - 100 : 0,
+          );
         }
-        if ((Object.hasOwn(updates, "quantity") || Object.hasOwn(updates, "rate")) && !next.amountEdited)
-          next.appliedAmount = next.quantity * next.rate;
-        if (Object.hasOwn(updates, "appliedAmount")) next.amountEdited = true;
+        if (Object.hasOwn(updates, "rate")) {
+          const additionalRatePercent = Number(next.additionalRatePercent) || 0;
+          const activeRate = (next.rate * (100 + additionalRatePercent)) / 100;
+          if (type === "PURCHASE") next.purchaseRate = activeRate;
+          else next.saleRate = activeRate;
+        }
+        if (
+          Object.hasOwn(updates, "purchaseRate") &&
+          type === "PURCHASE" &&
+          typeof next.purchaseRate === "number"
+        )
+          next.additionalRatePercent = String(
+            next.rate > 0 ? (next.purchaseRate * 100) / next.rate - 100 : 0,
+          );
+        if (Object.hasOwn(updates, "saleRate") && type === "SALE")
+          next.additionalRatePercent = String(
+            next.rate > 0 ? (next.saleRate * 100) / next.rate - 100 : 0,
+          );
+        if (Object.hasOwn(updates, "additionalRatePercent")) {
+          const additionalRatePercent = Number(next.additionalRatePercent) || 0;
+          const activeRate = (next.rate * (100 + additionalRatePercent)) / 100;
+          if (type === "PURCHASE") next.purchaseRate = activeRate;
+          else next.saleRate = activeRate;
+        }
         return next;
       }),
     );
-  const lineAmount = (line: DraftLine) => Math.max(0, line.appliedAmount);
+  const lineAmount = (line: DraftLine) => {
+    const quantity = Number(line.quantity) || 0;
+    const rate =
+      Number(type === "PURCHASE" ? line.purchaseRate : line.saleRate) || 0;
+    return Math.max(0, quantity * rate);
+  };
+  const hasInvalidLineValues = (line: DraftLine) => {
+    const tradingRate = type === "PURCHASE" ? line.purchaseRate : line.saleRate;
+    return (
+      line.quantity === "" ||
+      !Number.isFinite(line.quantity) ||
+      line.quantity <= 0 ||
+      tradingRate === "" ||
+      !Number.isFinite(tradingRate) ||
+      tradingRate < 0 ||
+      (line.labelOnly && (!Number.isFinite(line.rate) || line.rate < 0))
+    );
+  };
   const total = lines.reduce((sum, line) => sum + lineAmount(line), 0);
   const stockBeforeDraftLine = (itemCode: string, index: number) => {
-    let stock = movements.filter((movement) => movement.itemCode === itemCode && movement.location === location).reduce((sum, movement) => sum + movement.quantity, 0);
+    let stock = movements
+      .filter(
+        (movement) =>
+          movement.itemCode === itemCode && movement.location === location,
+      )
+      .reduce((sum, movement) => sum + movement.quantity, 0);
     if (baseline?.location === location) {
-      const originalQuantity = baseline.lines.filter((line) => line.itemCode === itemCode).reduce((sum, line) => sum + line.quantity, 0);
+      const originalQuantity = baseline.lines
+        .filter((line) => line.itemCode === itemCode)
+        .reduce((sum, line) => sum + line.quantity, 0);
       stock += type === "SALE" ? originalQuantity : -originalQuantity;
     }
-    const earlierDraftQuantity = lines.slice(0, index).filter((line) => line.itemCode === itemCode).reduce((sum, line) => sum + line.quantity, 0);
-    return stock + (type === "SALE" ? -earlierDraftQuantity : earlierDraftQuantity);
+    const earlierDraftQuantity = lines
+      .slice(0, index)
+      .filter((line) => line.itemCode === itemCode)
+      .reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+    return (
+      stock + (type === "SALE" ? -earlierDraftQuantity : earlierDraftQuantity)
+    );
   };
   const addLine = (focus = false) => {
     const newIndex = lines.length;
-    setLines((current) => [...current, { itemCode: "", itemLabel: "", labelOnly: false, quantity: 1, rate: 0, appliedAmount: 0, amountEdited: false, brand: "", category: "" }]);
-    if (focus) window.setTimeout(() => document.getElementById(`challan-item-${newIndex}`)?.focus(), 50);
+    setLines((current) => [...current, emptyLine()]);
+    if (focus)
+      window.setTimeout(
+        () => document.getElementById(`challan-item-${newIndex}`)?.focus(),
+        50,
+      );
   };
   useEffect(() => {
     if (!editorOpen) return;
-    const frame = window.requestAnimationFrame(() => document.getElementById("challan-party")?.focus());
+    const frame = window.requestAnimationFrame(() =>
+      document.getElementById("challan-party")?.focus(),
+    );
     return () => window.cancelAnimationFrame(frame);
   }, [editorOpen]);
   function beginEdit(row: Challan) {
@@ -303,6 +349,7 @@ export function ChallanPage({
     setBaseline(row);
     setNumber(row.number);
     setDate(row.date);
+    setChallanDescription(row.description ?? "");
     setParty(row.party);
     setLocation(row.location);
     setLines(
@@ -312,8 +359,23 @@ export function ChallanPage({
         labelOnly: !line.itemCode,
         quantity: line.quantity,
         rate: line.rate,
-        appliedAmount: line.amount,
-        amountEdited: Math.abs(line.amount - line.quantity * line.rate) > 1e-8,
+        purchaseRate:
+          line.purchaseRate ??
+          items.find((item) => item.code === line.itemCode)?.purchaseRate ??
+          line.rate,
+        additionalRatePercent: String(
+          line.additionalRatePercent ??
+            (line.rate > 0
+              ? ((type === "PURCHASE" ? line.purchaseRate : line.saleRate) *
+                  100) /
+                  line.rate -
+                100
+              : 0),
+        ),
+        saleRate:
+          line.saleRate ??
+          items.find((item) => item.code === line.itemCode)?.saleRate ??
+          line.rate,
         brand:
           line.brand ??
           items.find((item) => item.code === line.itemCode)?.brand ??
@@ -326,86 +388,13 @@ export function ChallanPage({
     );
     setEditorOpen(true);
   }
-  async function beginCreateItem(index: number) {
-    setCreateItemTarget(index);
-    setItemDescription("");
-    setItemBrand("");
-    setItemCategory("");
-    setItemUnit("Unit");
-    setItemPurchaseRate("0");
-    setItemRate("0");
-    setItemSaleRate("0");
-    setCreateItemOneOff(false);
-    setCreateItemOpen(true);
-  }
-  async function submitCreateItem(event: React.FormEvent) {
-    event.preventDefault();
-    if (createItemTarget === null) return;
-    setCreatingItem(true);
-    try {
-      if (createItemOneOff) {
-        const rate = Number(itemRate);
-        setLines((current) =>
-          current.map((line, index) =>
-            index === createItemTarget
-              ? {
-                  ...line,
-                  itemCode: "",
-                  itemLabel: itemDescription.trim(),
-                  labelOnly: true,
-                  rate: Number.isFinite(rate) && rate >= 0 ? rate : 0,
-                  appliedAmount: line.quantity * (Number.isFinite(rate) && rate >= 0 ? rate : 0),
-                  amountEdited: false,
-                  brand: itemBrand.trim(),
-                  category: itemCategory.trim(),
-                }
-              : line,
-          ),
-        );
-        setCreateItemOpen(false);
-        setCreateItemTarget(null);
-        return;
-      }
-      const saved = await onCreateItem({
-        description: itemDescription.trim(),
-        brand: itemBrand.trim(),
-        category: itemCategory.trim(),
-        unit: itemUnit.trim() || "Unit",
-        purchaseRate: Number(itemPurchaseRate),
-        itemRate: Number(itemRate),
-        saleRate: Number(itemSaleRate),
-      });
-      setLines((current) =>
-        current.map((line, index) =>
-          index === createItemTarget
-            ? {
-                ...line,
-                itemCode: saved.code,
-                itemLabel: "",
-                labelOnly: false,
-                rate: type === "PURCHASE" ? saved.purchaseRate : saved.saleRate,
-                appliedAmount: line.quantity * (type === "PURCHASE" ? saved.purchaseRate : saved.saleRate),
-                amountEdited: false,
-                brand: saved.brand,
-                category: saved.category,
-              }
-            : line,
-        ),
-      );
-      setCreateItemOpen(false);
-      setCreateItemTarget(null);
-      toast.success(`Item ${saved.code} added to the Items list`);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not create item",
-      );
-    } finally {
-      setCreatingItem(false);
-    }
-  }
   async function submit() {
     if (!location) {
       toast.error("Select a location");
+      return;
+    }
+    if (lines.some(hasInvalidLineValues)) {
+      toast.error("Enter a valid quantity and rate for every line");
       return;
     }
     setPosting(true);
@@ -415,16 +404,22 @@ export function ChallanPage({
           line.labelOnly
             ? {
                 itemLabel: line.itemLabel.trim(),
-                quantity: line.quantity,
+                quantity: Number(line.quantity),
                 rate: line.rate,
+                purchaseRate: Number(line.purchaseRate),
+                additionalRatePercent: Number(line.additionalRatePercent) || 0,
+                saleRate: line.saleRate,
                 amount: lineAmount(line),
                 brand: line.brand,
                 category: line.category,
               }
             : {
                 itemCode: line.itemCode,
-                quantity: line.quantity,
+                quantity: Number(line.quantity),
                 rate: lineRate(line),
+                purchaseRate: Number(line.purchaseRate),
+                additionalRatePercent: Number(line.additionalRatePercent) || 0,
+                saleRate: line.saleRate,
                 amount: lineAmount(line),
                 brand: line.brand,
                 category: line.category,
@@ -434,6 +429,7 @@ export function ChallanPage({
         number,
         type,
         date,
+        description: challanDescription,
         party,
         location,
         lines: submittedLines,
@@ -454,19 +450,8 @@ export function ChallanPage({
       setBaseline(null);
       setNumber("");
       setDate(today());
-      setLines([
-        {
-          itemCode: "",
-          itemLabel: "",
-          labelOnly: false,
-          quantity: 1,
-          rate: 0,
-          appliedAmount: 0,
-          amountEdited: false,
-          brand: "",
-          category: "",
-        },
-      ]);
+      setChallanDescription("");
+      setLines([emptyLine()]);
       setEditorOpen(false);
     } catch (error) {
       toast.error(
@@ -478,13 +463,21 @@ export function ChallanPage({
   }
   return (
     <section className="space-y-5">
-      <PageHeader title={type === "PURCHASE" ? "Purchase Challans" : "Sale Challans"} description="Select or create catalog items, or use one-off labels that do not change inventory." actions={<Button data-operator-new
-          disabled={reservingNumber || posting}
-          onClick={() => void beginCreate()}
-        >
-          <Plus data-icon="inline-start" />
-          {reservingNumber ? "Preparing…" : "New challan"}
-        </Button>} />
+      <PageHeader
+        title={type === "PURCHASE" ? "Purchase Challans" : "Sale Challans"}
+        description="Select or create catalog items, or use one-off labels that do not change inventory."
+        actions={
+          <Button
+            data-operator-new
+            title="New challan (Ctrl+N)"
+            disabled={reservingNumber || posting}
+            onClick={() => void beginCreate()}
+          >
+            <Plus data-icon="inline-start" />
+            {reservingNumber ? "Preparing…" : "New challan"}
+          </Button>
+        }
+      />
       <Dialog
         open={editorOpen}
         onOpenChange={(open) => {
@@ -495,7 +488,15 @@ export function ChallanPage({
           }
         }}
       >
-        <DialogContent onKeyDown={(event) => { if (event.altKey && event.key === "Enter") { event.preventDefault(); addLine(true); } }} className="flex max-h-[92vh] w-[min(96vw,72rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
+        <DialogContent
+          onKeyDown={(event) => {
+            if (event.altKey && event.key === "Enter") {
+              event.preventDefault();
+              addLine(true);
+            }
+          }}
+          className="flex max-h-[92vh] w-[min(98vw,84rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
+        >
           <DialogHeader className="border-b px-6 py-5">
             <DialogTitle>
               {editingNumber
@@ -508,7 +509,7 @@ export function ChallanPage({
             </DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 pb-10">
-            <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-4">
               <FormSectionHeading title="Document details" />
               <Field label="Challan number" id="challan-number">
                 <Input id="challan-number" value={number} disabled />
@@ -540,6 +541,22 @@ export function ChallanPage({
                     value: place,
                     label: place,
                   }))}
+                />
+              </Field>
+              <Field
+                label="Description"
+                id="challan-description"
+                className="sm:col-span-3"
+              >
+                <Textarea
+                  id="challan-description"
+                  maxLength={300}
+                  rows={3}
+                  value={challanDescription}
+                  onChange={(event) =>
+                    setChallanDescription(event.target.value)
+                  }
+                  placeholder="Optional note for this challan"
                 />
               </Field>
             </FieldGroup>
@@ -579,115 +596,210 @@ export function ChallanPage({
                         <Trash2 />
                       </Button>
                     </div>
-                    <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(8rem,1fr))]">
-                      <div className="flex flex-col gap-2">
-                        {line.labelOnly ? (
-                          <Field
-                            label="One-off item label"
-                            id={`challan-label-${index}`}
-                          >
-                            <Input
+                    <div className="overflow-x-auto pb-1">
+                      <FieldGroup
+                        className={
+                          line.labelOnly
+                            ? "grid min-w-196 grid-cols-[minmax(10rem,1fr)_5rem_6rem_6rem_4rem_6.5rem] gap-3 [&_[data-slot=field-label]]:whitespace-nowrap"
+                            : "grid min-w-264 grid-cols-[minmax(10rem,1fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_6rem_6rem_4rem_6.5rem] gap-3 [&_[data-slot=field-label]]:whitespace-nowrap"
+                        }
+                      >
+                        <div className="flex flex-col gap-2">
+                          {line.labelOnly ? (
+                            <Field
+                              label="One-off item label"
                               id={`challan-label-${index}`}
+                            >
+                              <Input
+                                id={`challan-label-${index}`}
+                                required
+                                maxLength={200}
+                                value={line.itemLabel}
+                                onChange={(event) =>
+                                  setLine(index, {
+                                    itemLabel: event.target.value,
+                                  })
+                                }
+                                placeholder="Enter item or service label"
+                              />
+                            </Field>
+                          ) : (
+                            <Field
+                              label="Catalog item"
+                              id={`challan-item-${index}`}
                               required
-                              maxLength={200}
-                              value={line.itemLabel}
+                            >
+                              <SearchableItemSelect
+                                id={`challan-item-${index}`}
+                                value={line.itemCode}
+                                onChange={(value) =>
+                                  setLine(index, { itemCode: value })
+                                }
+                                items={items}
+                                placeholder="Select an item"
+                                emptyHint="Add catalog items on the Items page, then select one here."
+                              />
+                            </Field>
+                          )}
+                        </div>
+                        {!line.labelOnly && (
+                          <PersistentSelectField
+                            label="Brand"
+                            id={`challan-brand-${index}`}
+                            value={line.brand}
+                            onChange={(brand) => setLine(index, { brand })}
+                            options={itemAttributes.brands}
+                            onAdd={(value) => addItemAttribute("brand", value)}
+                            required={false}
+                          />
+                        )}
+                        {!line.labelOnly && (
+                          <PersistentSelectField
+                            label="Category"
+                            id={`challan-category-${index}`}
+                            value={line.category}
+                            onChange={(category) =>
+                              setLine(index, { category })
+                            }
+                            options={itemAttributes.categories}
+                            onAdd={(value) =>
+                              addItemAttribute("category", value)
+                            }
+                            required={false}
+                          />
+                        )}
+                        <Field
+                          label="Quantity"
+                          id={`challan-quantity-${index}`}
+                        >
+                          <Input
+                            id={`challan-quantity-${index}`}
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            required
+                            value={line.quantity}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setLine(index, {
+                                quantity: value === "" ? "" : Number(value),
+                              });
+                            }}
+                          />
+                          {line.itemCode && location && (
+                            <p className="text-xs text-muted-foreground">
+                              {type === "SALE"
+                                ? `Remaining after this line: ${stockBeforeDraftLine(line.itemCode, index) - (Number(line.quantity) || 0)} ${selectedItem?.unit ?? "units"}`
+                                : `New quantity: ${stockBeforeDraftLine(line.itemCode, index) + (Number(line.quantity) || 0)} ${selectedItem?.unit ?? "units"}`}
+                            </p>
+                          )}
+                        </Field>
+                        {line.labelOnly ? (
+                          <Field label="Rate" id={`challan-rate-${index}`}>
+                            <Input
+                              id={`challan-rate-${index}`}
+                              type="number"
+                              min="0"
+                              step="any"
+                              required
+                              value={line.rate}
                               onChange={(event) =>
                                 setLine(index, {
-                                  itemLabel: event.target.value,
+                                  rate: Number(event.target.value),
                                 })
                               }
-                              placeholder="Enter item or service description"
                             />
                           </Field>
                         ) : (
-                          <Field
-                            label="Catalog item"
-                            id={`challan-item-${index}`}
-                            required
-                          >
-                            <SearchableItemSelect
-                              id={`challan-item-${index}`}
-                              value={line.itemCode}
-                              onChange={(value) =>
-                                setLine(index, { itemCode: value })
-                              }
-                              items={items}
-                              placeholder="Select an item"
-                              emptyHint="Create a catalog item here or use a one-off label."
-                            />
-                          </Field>
+                          <UiField>
+                            <FieldLabel>Rate</FieldLabel>
+                            <div className="flex h-9 items-center rounded-lg border bg-muted/40 px-3 font-medium tabular-nums">
+                              {money(rate)}
+                            </div>
+                          </UiField>
                         )}
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void beginCreateItem(index)}
-                          >
-                            <Plus data-icon="inline-start" />
-                            Create catalog item / one-off
-                          </Button>
-                        </div>
-                      </div>
-                      <Field label="Quantity" id={`challan-quantity-${index}`}>
-                        <Input
-                          id={`challan-quantity-${index}`}
-                          type="number"
-                          min="0.01"
-                          step="any"
-                          required
-                          value={line.quantity}
-                          onChange={(event) =>
-                            setLine(index, {
-                              quantity: Number(event.target.value),
-                            })
+                        <Field
+                          label={
+                            type === "PURCHASE" ? "Purchase Rate" : "Sale Rate"
                           }
-                        />
-                        {line.itemCode && location && (
-                          <p className="text-xs text-muted-foreground">
-                            {type === "SALE"
-                              ? `Remaining after this line: ${stockBeforeDraftLine(line.itemCode, index) - line.quantity} ${selectedItem?.unit ?? "units"}`
-                              : `New quantity: ${stockBeforeDraftLine(line.itemCode, index) + line.quantity} ${selectedItem?.unit ?? "units"}`}
-                          </p>
-                        )}
-                      </Field>
-                      {line.labelOnly ? (
-                        <Field label="Rate" id={`challan-rate-${index}`}>
+                          id={`challan-trading-rate-${index}`}
+                        >
                           <Input
-                            id={`challan-rate-${index}`}
+                            id={`challan-trading-rate-${index}`}
                             type="number"
                             min="0"
                             step="any"
                             required
-                            value={line.rate}
+                            value={
+                              type === "PURCHASE"
+                                ? line.purchaseRate
+                                : line.saleRate
+                            }
+                            onChange={(event) =>
+                              setLine(
+                                index,
+                                type === "PURCHASE"
+                                  ? {
+                                      purchaseRate:
+                                        event.target.value === ""
+                                          ? ""
+                                          : Number(event.target.value),
+                                    }
+                                  : { saleRate: Number(event.target.value) },
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field
+                          label="Additional %"
+                          id={`challan-trading-rate-percent-${index}`}
+                        >
+                          <Input
+                            id={`challan-trading-rate-percent-${index}`}
+                            type="number"
+                            min="-100"
+                            step="any"
+                            required
+                            value={line.additionalRatePercent}
                             onChange={(event) =>
                               setLine(index, {
-                                rate: Number(event.target.value),
+                                additionalRatePercent: event.target.value,
                               })
                             }
                           />
                         </Field>
-                      ) : (
-                        <UiField>
-                          <FieldLabel>Rate</FieldLabel>
-                          <div className="flex h-9 items-center rounded-lg border bg-muted/40 px-3 font-medium tabular-nums">
-                            {money(rate)}
-                          </div>
-                        </UiField>
-                      )}
-                      <Field label="Line total" id={`challan-applied-amount-${index}`}>
-                        <Input id={`challan-applied-amount-${index}`} type="number" min="0" step="any" required value={line.appliedAmount} onChange={(event) => setLine(index, { appliedAmount: Number(event.target.value) })} />
-                      </Field>
-                    </FieldGroup>
+                        <Field
+                          label="Total"
+                          id={`challan-line-total-${index}`}
+                          className="**:data-[slot=field-label]:ml-0 **:data-[slot=field-label]:w-full **:data-[slot=field-label]:justify-end **:data-[slot=field-label]:text-right"
+                        >
+                          <Input
+                            id={`challan-line-total-${index}`}
+                            aria-label={`Line total ${index + 1}`}
+                            className="bg-muted/40 text-right font-medium tabular-nums"
+                            readOnly
+                            value={money(lineAmount(line))}
+                          />
+                        </Field>
+                      </FieldGroup>
+                    </div>
                   </div>
                 );
               })}
             </section>
           </div>
           <DialogFooter className="mt-0 flex-row flex-wrap items-center justify-between gap-3 border-t px-6 py-5 pb-6 sm:flex-row">
-            <Button type="button" variant="outline" title="Add line (Alt+Enter)" onClick={() => addLine(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              title="Add line (Alt+Enter)"
+              onClick={() => addLine(true)}
+            >
               <Plus data-icon="inline-start" />
-              Add line <Kbd className="ml-1 h-4 min-w-0 px-1 text-[10px]">Alt+Enter</Kbd>
+              Add line{" "}
+              <Kbd className="ml-1 h-4 min-w-0 px-1 text-[10px]">
+                Alt+Enter
+              </Kbd>
             </Button>
             <div className="flex flex-wrap items-center justify-end gap-4">
               <span className="text-sm text-muted-foreground">
@@ -696,20 +808,16 @@ export function ChallanPage({
                   {money(total)}
                 </strong>
               </span>
-              <Button data-operator-save
+              <Button
+                data-operator-save
+                title="Save challan (Ctrl+S)"
                 onClick={() => void submit()}
                 disabled={
                   posting ||
                   lines.some((line) =>
                     line.labelOnly ? !line.itemLabel.trim() : !line.itemCode,
                   ) ||
-                  lines.some(
-                    (line) =>
-                      !Number.isFinite(line.quantity) ||
-                      line.quantity <= 0 ||
-                      (line.labelOnly &&
-                        (!Number.isFinite(line.rate) || line.rate < 0)),
-                  )
+                  lines.some(hasInvalidLineValues)
                 }
               >
                 {posting
@@ -720,184 +828,6 @@ export function ChallanPage({
               </Button>
             </div>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={createItemOpen} onOpenChange={setCreateItemOpen}>
-        <DialogContent className="w-[min(92vw,42rem)] sm:max-w-none">
-          <form onSubmit={(event) => void submitCreateItem(event)}>
-            <DialogHeader>
-              <DialogTitle>
-                {createItemOneOff
-                  ? "Add one-off line"
-                  : "Create catalog item"}
-              </DialogTitle>
-              <DialogDescription>
-                {createItemOneOff
-                  ? `Enter a label for line ${createItemTarget === null ? "" : createItemTarget + 1}. It will be posted without creating an inventory item.`
-                  : `This item will be saved in Items and selected on line ${createItemTarget === null ? "" : createItemTarget + 1}. Stock will change only when you post the challan.`}
-              </DialogDescription>
-            </DialogHeader>
-            <FieldGroup className="my-5 grid gap-4">
-              <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
-                <Input
-                  aria-label="Use as one-off label"
-                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
-                  type="checkbox"
-                  checked={createItemOneOff}
-                  onChange={(event) =>
-                    setCreateItemOneOff(event.target.checked)
-                  }
-                />
-                <span className="grid gap-0.5">
-                  <span className="font-medium">Use as one-off label</span>
-                  <span className="text-xs text-muted-foreground">
-                    Add this line without creating an inventory item
-                  </span>
-                </span>
-              </label>
-              <Field label="Description" id="new-challan-item-description">
-                <Input
-                  id="new-challan-item-description"
-                  required
-                  maxLength={200}
-                  autoFocus
-                  value={itemDescription}
-                  onChange={(event) => setItemDescription(event.target.value)}
-                  placeholder={
-                    createItemOneOff
-                      ? "Enter item or service description"
-                      : "Item description"
-                  }
-                />
-              </Field>
-              {createItemOneOff ? (
-                <div className="grid grid-cols-1 gap-4">
-                  <Field label="Rate" id="new-challan-item-rate">
-                    <Input
-                      id="new-challan-item-rate"
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={itemRate}
-                      onChange={(event) => setItemRate(event.target.value)}
-                    />
-                  </Field>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <PersistentSelectField
-                      label="Brand"
-                      id="new-challan-one-off-brand"
-                      value={itemBrand}
-                      onChange={setItemBrand}
-                      options={itemAttributes.brands}
-                      onAdd={(value) => addItemAttribute("brand", value)}
-                      required={false}
-                    />
-                    <PersistentSelectField
-                      label="Category"
-                      id="new-challan-one-off-category"
-                      value={itemCategory}
-                      onChange={setItemCategory}
-                      options={itemAttributes.categories}
-                      onAdd={(value) => addItemAttribute("category", value)}
-                      required={false}
-                    />
-                  </div>
-                </div>
-              ) : (
-              <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <PersistentSelectField
-                  label="Brand name"
-                  id="new-challan-item-brand"
-                  value={itemBrand}
-                  onChange={setItemBrand}
-                  options={itemAttributes.brands}
-                  onAdd={(value) => addItemAttribute("brand", value)}
-                />
-                <PersistentSelectField
-                  label="Category"
-                  id="new-challan-item-category"
-                  value={itemCategory}
-                  onChange={setItemCategory}
-                  options={itemAttributes.categories}
-                  onAdd={(value) => addItemAttribute("category", value)}
-                />
-              </div>
-              <Field label="Unit" id="new-challan-item-unit">
-                <Input
-                  id="new-challan-item-unit"
-                  maxLength={40}
-                  value={itemUnit}
-                  onChange={(event) => setItemUnit(event.target.value)}
-                  placeholder="Unit"
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Item rate" id="new-challan-item-rate">
-                  <Input
-                    id="new-challan-item-rate"
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={itemRate}
-                    onChange={(event) => setItemRate(event.target.value)}
-                  />
-                </Field>
-                <Field
-                  label="Purchase rate"
-                  id="new-challan-item-purchase-rate"
-                >
-                  <Input
-                    id="new-challan-item-purchase-rate"
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={itemPurchaseRate}
-                    onChange={(event) =>
-                      setItemPurchaseRate(event.target.value)
-                    }
-                  />
-                </Field>
-                <Field label="Sale rate" id="new-challan-item-sale-rate">
-                  <Input
-                    id="new-challan-item-sale-rate"
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={itemSaleRate}
-                    onChange={(event) => setItemSaleRate(event.target.value)}
-                  />
-                </Field>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                An item code will be generated automatically. Existing inventory
-                is unchanged.
-              </p>
-              </>
-              )}
-            </FieldGroup>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCreateItemOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button data-operator-save
-                type="submit"
-                disabled={creatingItem || !itemDescription.trim()}
-              >
-                {creatingItem
-                  ? createItemOneOff
-                    ? "Adding…"
-                    : "Creating…"
-                  : createItemOneOff
-                    ? "Add one-off line"
-                    : "Create and select item"}
-              </Button>
-            </DialogFooter>
-          </form>
         </DialogContent>
       </Dialog>
       <Card>
@@ -990,6 +920,7 @@ export function ChallanPage({
             company={company}
             logo={logo}
             title={`${type === "PURCHASE" ? "Purchase" : "Sale"} Challan`}
+            subtitle={printChallan.description || undefined}
             columns={[
               "#",
               "Item code",
@@ -1017,6 +948,7 @@ export function ChallanPage({
             company={company}
             logo={logo}
             title={`${type === "PURCHASE" ? "Purchase" : "Sale"} Challan`}
+            subtitle={printChallan.description || undefined}
             columns={[
               "#",
               "Item code",

@@ -70,6 +70,9 @@ export type ChallanLine = {
   itemLabel?: string;
   quantity: number;
   rate: number;
+  purchaseRate: number;
+  additionalRatePercent: number;
+  saleRate: number;
   amount: number;
   discountPercent: number;
   discountAmount: number;
@@ -81,6 +84,9 @@ export type ChallanInputLine = {
   itemLabel?: string;
   quantity: number;
   rate?: number;
+  purchaseRate?: number;
+  additionalRatePercent?: number;
+  saleRate?: number;
   amount?: number;
   discountPercent?: number;
   discountAmount?: number;
@@ -91,6 +97,7 @@ export type Challan = {
   number: string;
   type: string;
   date: string;
+  description: string;
   party: string;
   location: string;
   total: number;
@@ -408,10 +415,6 @@ export type OfficeBridge = {
     ) => Promise<ItemAttributes>;
     deleteCategory: (name: string) => Promise<ItemAttributes>;
     save: (value: Item & { __baseline?: Partial<Item> }) => Promise<Item>;
-    createForChallan: (value: {
-      type: "PURCHASE" | "SALE";
-      item: Omit<Item, "code" | "stockQuantity">;
-    }) => Promise<Item>;
     remove: (code: string) => Promise<void>;
   };
   banks: {

@@ -383,7 +383,9 @@ export function KeybindingsPage() {
             Application and editing shortcuts
           </CardTitle>
           <CardDescription>
-            Shortcuts for navigation, search, display, and common text editing.
+            Shortcuts for navigation, search, record entry, display, and common
+            text editing. Search, new, and save controls also show their
+            shortcuts in tooltips.
           </CardDescription>
         </CardHeader>
         <CardContent className="divide-y">
@@ -405,10 +407,11 @@ export function KeybindingsPage() {
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">
-        Ctrl+K opens global search and commands. Ctrl+F only focuses a search or
-        filter on the current page, when one is available. Record commands only
-        act on pages that support them. Right-click in the app for navigation
-        and refresh actions. Ctrl+R reloads the application.
+        Ctrl+K opens navigation commands. Ctrl+Shift+F opens global record
+        search; Ctrl+F focuses the current page’s search. Ctrl+N and Ctrl+S
+        activate marked create and save controls. Esc closes the active dialog
+        or panel when allowed. F5 refreshes office data, while Ctrl+R reloads
+        the application. Right-click for additional navigation actions.
       </p>
     </section>
   );

@@ -121,6 +121,47 @@ test('SQLite office store persists master data and posts stock atomically', (t) 
   assert.equal(store.getStock('I-1', 'Main'), 0, 'deleting a purchase with no dependent sales is allowed')
 })
 
+test('challan additional rate percent is measured above the base rate', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-rate-percent-'))
+  const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))
+  t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+  store.saveAccount({ code: 'P', description: 'Party' })
+  store.saveItem({ code: 'I', description: 'Item', unit: 'pc', purchaseRate: 1, saleRate: 2 })
+  store.saveLocation('Main')
+
+  store.postChallan({
+    number: 'P-1',
+    type: 'PURCHASE',
+    date: '2026-10-19',
+    party: 'P',
+    location: 'Main',
+    lines: [{ itemCode: 'I', quantity: 1, rate: 100, additionalRatePercent: 10, amount: 110 }],
+  })
+  let purchase = store.listChallans().find((challan) => challan.number === 'P-1')
+  assert.equal(purchase.lines[0].purchaseRate, 110)
+  assert.equal(purchase.lines[0].additionalRatePercent, 10)
+
+  store.updateChallan({
+    ...purchase,
+    lines: [{ itemCode: 'I', quantity: 1, rate: 100, additionalRatePercent: -10, amount: 90 }],
+    __baseline: purchase,
+  })
+  purchase = store.listChallans().find((challan) => challan.number === 'P-1')
+  assert.equal(purchase.lines[0].purchaseRate, 90)
+  assert.equal(purchase.lines[0].additionalRatePercent, -10)
+
+  const sale = store.postChallan({
+    number: 'S-1',
+    type: 'SALE',
+    date: '2026-10-19',
+    party: 'P',
+    location: 'Main',
+    lines: [{ itemCode: 'I', quantity: 1, rate: 200, additionalRatePercent: 10, amount: 220 }],
+  })
+  assert.equal(sale.lines[0].saleRate, 220)
+  assert.equal(sale.lines[0].additionalRatePercent, 10)
+})
+
 test('SQLite store refuses purchase deletion that would make remaining stock negative', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-stock-'))
   const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))

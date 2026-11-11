@@ -74,11 +74,13 @@ function initializeSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS challans (
       number TEXT PRIMARY KEY, type TEXT NOT NULL, date TEXT NOT NULL, party TEXT NOT NULL,
-      location TEXT NOT NULL, total NUMERIC NOT NULL
+      location TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', total NUMERIC NOT NULL
     );
     CREATE TABLE IF NOT EXISTS challan_lines (
       challan_number TEXT NOT NULL, line_number INTEGER NOT NULL, item_code TEXT, item_label TEXT,
       quantity NUMERIC NOT NULL, rate NUMERIC NOT NULL, amount NUMERIC NOT NULL,
+      purchase_rate NUMERIC NOT NULL DEFAULT 0, purchase_rate_percent NUMERIC NOT NULL DEFAULT 0,
+      sale_rate NUMERIC NOT NULL DEFAULT 0, sale_rate_percent NUMERIC NOT NULL DEFAULT 0,
       discount_percent NUMERIC NOT NULL DEFAULT 0, discount_amount NUMERIC NOT NULL DEFAULT 0,
       brand TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (challan_number, line_number),
@@ -257,6 +259,8 @@ function initializeSchema(db) {
       db.exec(`CREATE TABLE challan_lines (
         challan_number TEXT NOT NULL, line_number INTEGER NOT NULL, item_code TEXT, item_label TEXT,
         quantity NUMERIC NOT NULL, rate NUMERIC NOT NULL, amount NUMERIC NOT NULL,
+        purchase_rate NUMERIC NOT NULL DEFAULT 0, purchase_rate_percent NUMERIC NOT NULL DEFAULT 0,
+        sale_rate NUMERIC NOT NULL DEFAULT 0, sale_rate_percent NUMERIC NOT NULL DEFAULT 0,
         PRIMARY KEY (challan_number, line_number), CHECK (item_code IS NOT NULL OR item_label IS NOT NULL),
         FOREIGN KEY (challan_number) REFERENCES challans(number), FOREIGN KEY (item_code) REFERENCES items(code)
       )`)
@@ -266,10 +270,20 @@ function initializeSchema(db) {
     db.pragma('foreign_keys = ON')
   }
   const currentChallanLineColumns = db.prepare('PRAGMA table_info(challan_lines)').all().map((column) => column.name)
+  const challanColumns = db.prepare('PRAGMA table_info(challans)').all().map((column) => column.name)
+  if (!challanColumns.includes('description')) db.exec("ALTER TABLE challans ADD COLUMN description TEXT NOT NULL DEFAULT ''")
   if (!currentChallanLineColumns.includes('discount_percent')) db.exec('ALTER TABLE challan_lines ADD COLUMN discount_percent NUMERIC NOT NULL DEFAULT 0')
   if (!currentChallanLineColumns.includes('discount_amount')) db.exec('ALTER TABLE challan_lines ADD COLUMN discount_amount NUMERIC NOT NULL DEFAULT 0')
   if (!currentChallanLineColumns.includes('brand')) db.exec("ALTER TABLE challan_lines ADD COLUMN brand TEXT NOT NULL DEFAULT ''")
   if (!currentChallanLineColumns.includes('category')) db.exec("ALTER TABLE challan_lines ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+  if (!currentChallanLineColumns.includes('purchase_rate')) db.exec('ALTER TABLE challan_lines ADD COLUMN purchase_rate NUMERIC NOT NULL DEFAULT 0')
+  if (!currentChallanLineColumns.includes('purchase_rate_percent')) db.exec('ALTER TABLE challan_lines ADD COLUMN purchase_rate_percent NUMERIC NOT NULL DEFAULT 0')
+  if (!currentChallanLineColumns.includes('sale_rate')) db.exec('ALTER TABLE challan_lines ADD COLUMN sale_rate NUMERIC NOT NULL DEFAULT 0')
+  if (!currentChallanLineColumns.includes('sale_rate_percent')) db.exec('ALTER TABLE challan_lines ADD COLUMN sale_rate_percent NUMERIC NOT NULL DEFAULT 0')
+  db.exec(`UPDATE challan_lines SET purchase_rate=COALESCE((SELECT purchase_rate FROM items WHERE items.code=challan_lines.item_code), rate) WHERE purchase_rate=0;
+    UPDATE challan_lines SET purchase_rate_percent=CASE WHEN rate>0 THEN purchase_rate*100.0/rate ELSE 0 END WHERE purchase_rate_percent=0;
+    UPDATE challan_lines SET sale_rate=COALESCE((SELECT sale_rate FROM items WHERE items.code=challan_lines.item_code), rate) WHERE sale_rate=0;
+    UPDATE challan_lines SET sale_rate_percent=CASE WHEN rate>0 THEN sale_rate*100.0/rate ELSE 0 END WHERE sale_rate_percent=0;`)
   db.exec(`INSERT OR IGNORE INTO locations(name) SELECT DISTINCT trim(location) FROM stock_movements WHERE trim(location)<>'';
     INSERT OR IGNORE INTO locations(name) SELECT DISTINCT trim(location) FROM challans WHERE trim(location)<>'';
     INSERT OR IGNORE INTO locations(name) SELECT DISTINCT trim(from_location) FROM stock_transfers WHERE trim(from_location)<>'';
@@ -299,7 +313,7 @@ function createOfficeStore(db) {
     for (const [key, kind = 'text'] of fields) {
       const normalize = (value) => kind === 'number' ? Number(value ?? 0)
         : kind === 'nullable' ? (value || null)
-        : kind === 'lines' ? JSON.stringify((value || []).map((line) => [line.itemCode || line.accountCode || line.itemLabel || '', Number(line.quantity ?? line.debit ?? 0), Number(line.credit ?? 0), Number(line.rate ?? 0), Number(line.amount ?? 0), Number(line.discountPercent ?? 0), Number(line.discountAmount ?? 0), line.brand ?? '', line.category ?? '', line.paymentMethod ?? '', line.chequeNumber ?? '']))
+        : kind === 'lines' ? JSON.stringify((value || []).map((line) => [line.itemCode || line.accountCode || line.itemLabel || '', Number(line.quantity ?? line.debit ?? 0), Number(line.credit ?? 0), Number(line.rate ?? 0), Number(line.purchaseRate ?? 0), Number(line.additionalRatePercent ?? 0), Number(line.saleRate ?? 0), Number(line.amount ?? 0), Number(line.discountPercent ?? 0), Number(line.discountAmount ?? 0), line.brand ?? '', line.category ?? '', line.paymentMethod ?? '', line.chequeNumber ?? '']))
             : (value ?? '')
       const same = (left, right) => normalize(left) === normalize(right)
       const original = baseline[key]
@@ -773,12 +787,6 @@ function createOfficeStore(db) {
     })()
   }
 
-  function createItemFromChallan(input) {
-    const code = input.code ? required(input.code, 'Item code') : nextOfficeId('item')
-    if (db.prepare('SELECT 1 FROM items WHERE code=?').get(code)) throw new Error(`Item code already exists: ${code}`)
-    return saveItem({ ...input, code, quantityToAdd: 0 })
-  }
-
   function deleteItem(code) {
     const result = db.prepare('DELETE FROM items WHERE code = ?').run(code)
     if (!result.changes) throw new Error('Item does not exist')
@@ -852,9 +860,16 @@ function createOfficeStore(db) {
 
   function listChallans(type) {
     const documents = type
-      ? db.prepare('SELECT number, type, date, party, location, total FROM challans WHERE type=? ORDER BY date DESC, number DESC').all(type)
-      : db.prepare('SELECT number, type, date, party, location, total FROM challans ORDER BY date DESC, number DESC').all()
-    const getLines = db.prepare('SELECT line_number AS lineNumber, item_code AS itemCode, item_label AS itemLabel, quantity, rate, amount, discount_percent AS discountPercent, discount_amount AS discountAmount, brand, category FROM challan_lines WHERE challan_number=? ORDER BY line_number')
+      ? db.prepare('SELECT number, type, date, description, party, location, total FROM challans WHERE type=? ORDER BY date DESC, number DESC').all(type)
+      : db.prepare('SELECT number, type, date, description, party, location, total FROM challans ORDER BY date DESC, number DESC').all()
+    const getLines = db.prepare(`SELECT cl.line_number AS lineNumber, cl.item_code AS itemCode, cl.item_label AS itemLabel,
+      cl.quantity, cl.rate, cl.purchase_rate AS purchaseRate,
+      CASE WHEN c.type='PURCHASE' THEN CASE WHEN cl.rate>0 THEN cl.purchase_rate*100.0/cl.rate-100 ELSE 0 END
+        ELSE CASE WHEN cl.rate>0 THEN cl.sale_rate*100.0/cl.rate-100 ELSE 0 END END AS additionalRatePercent,
+      cl.sale_rate AS saleRate,
+      cl.amount, cl.discount_percent AS discountPercent, cl.discount_amount AS discountAmount, cl.brand, cl.category
+      FROM challan_lines cl JOIN challans c ON c.number=cl.challan_number
+      LEFT JOIN items i ON i.code=cl.item_code WHERE cl.challan_number=? ORDER BY cl.line_number`)
     return documents.map((document) => ({ ...document, lines: getLines.all(document.number).map((line) => ({ ...line, itemCode: line.itemCode ?? '' })) }))
   }
 
@@ -1022,6 +1037,7 @@ function createOfficeStore(db) {
     if (!['PURCHASE', 'SALE'].includes(type)) throw new Error('Challan type must be Purchase or Sale')
     const number = required(input.number, 'Challan number')
     const date = required(input.date, 'Challan date')
+    const description = String(input.description || '').trim()
     const party = required(input.party, 'Party')
     const location = knownLocation(input.location)
     const parsedDate = new Date(`${date}T00:00:00Z`)
@@ -1032,14 +1048,35 @@ function createOfficeStore(db) {
     const lines = input.lines.map((line) => {
       const itemCode = String(line.itemCode || '').trim()
       const itemLabel = String(line.itemLabel || '').trim()
-      const item = itemCode ? db.prepare('SELECT code, sale_rate, purchase_rate, item_rate, brand, category FROM items WHERE code=?').get(itemCode) : null
+      const item = itemCode ? db.prepare('SELECT code, description, sale_rate, purchase_rate, item_rate, brand, category FROM items WHERE code=?').get(itemCode) : null
       if (itemCode && !item) throw new Error(`Unknown item: ${itemCode}`)
       if (!itemCode && !itemLabel) throw new Error('Choose a catalog item or enter a line label')
       const quantity = positive(line.quantity, 'Quantity')
       const rate = nonNegative(line.rate ?? (item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : 0), 'Item rate')
+      const additionalRatePercent = line.additionalRatePercent === undefined
+        ? undefined
+        : validAdditionalRatePercent(line.additionalRatePercent)
+      const purchaseRate = nonNegative(
+        type === 'PURCHASE' && additionalRatePercent !== undefined
+          ? rate * (100 + additionalRatePercent) / 100
+          : line.purchaseRate ?? item?.purchase_rate ?? rate,
+        'Purchase rate',
+      )
+      const saleRate = nonNegative(
+        type === 'SALE' && additionalRatePercent !== undefined
+          ? rate * (100 + additionalRatePercent) / 100
+          : line.saleRate ?? item?.sale_rate ?? rate,
+        'Sale rate',
+      )
+      const purchaseRateRatioPercent = rate > 0 ? purchaseRate * 100 / rate : 0
+      const saleRateRatioPercent = rate > 0 ? saleRate * 100 / rate : 0
+      const resolvedAdditionalRatePercent = additionalRatePercent ??
+        (rate > 0
+          ? ((type === 'PURCHASE' ? purchaseRate : saleRate) * 100 / rate) - 100
+          : 0)
       const gross = quantity * rate
       const amount = nonNegative(line.amount ?? gross - nonNegative(line.discountAmount ?? gross * nonNegative(line.discountPercent ?? 0, 'Discount percent') / 100, 'Discount amount'), 'Applied amount')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, purchaseRate, saleRate, additionalRatePercent: resolvedAdditionalRatePercent, purchaseRateRatioPercent, saleRateRatioPercent, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -1049,29 +1086,36 @@ function createOfficeStore(db) {
       }
     }
     const total = lines.reduce((sum, line) => sum + line.amount, 0)
-    db.prepare('INSERT INTO challans(number, type, date, party, location, total) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(number, type, date, party, location, total)
-    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount, discount_percent, discount_amount, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    db.prepare('INSERT INTO challans(number, type, date, description, party, location, total) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(number, type, date, description, party, location, total)
+    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount, purchase_rate, purchase_rate_percent, sale_rate, sale_rate_percent, discount_percent, discount_amount, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const insertMovement = db.prepare('INSERT INTO stock_movements(date, document, type, item_code, location, quantity, rate, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     lines.forEach((line, index) => {
       const signedQuantity = type === 'PURCHASE' ? line.quantity : -line.quantity
-      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.discountPercent, line.discountAmount, line.brand, line.category)
+      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.purchaseRate, line.purchaseRateRatioPercent, line.saleRate, line.saleRateRatioPercent, line.discountPercent, line.discountAmount, line.brand, line.category)
       if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.amount / line.quantity, Math.sign(signedQuantity) * line.amount)
     })
     recordAudit('CHALLAN_POST', number)
-    return { number, type, date, party, location, total, lines }
+    return { number, type, date, description, party, location, total, lines }
   })
 
   const updateChallanTransaction = db.transaction((input) => {
     const number = required(input.number, 'Challan number')
-    const existing = db.prepare('SELECT number, type, date, party, location FROM challans WHERE number=?').get(number)
+    const existing = db.prepare('SELECT number, type, date, description, party, location FROM challans WHERE number=?').get(number)
     if (!existing) throw new Error('Challan does not exist')
     const type = existing.type
     if (input.type && String(input.type).toUpperCase() !== type) throw new Error('A challan cannot be changed from purchase to sale or vice versa')
-    const current = { ...existing, lines: db.prepare('SELECT item_code AS itemCode, item_label AS itemLabel, quantity, rate, amount, discount_percent AS discountPercent, discount_amount AS discountAmount, brand, category FROM challan_lines WHERE challan_number=? ORDER BY line_number').all(number) }
-    const proposed = { date: input.date, party: input.party, location: input.location, lines: input.lines }
+    const current = { ...existing, lines: db.prepare(`SELECT cl.item_code AS itemCode, cl.item_label AS itemLabel,
+      cl.quantity, cl.rate, cl.purchase_rate AS purchaseRate,
+      CASE WHEN ?='PURCHASE' THEN CASE WHEN cl.rate>0 THEN cl.purchase_rate*100.0/cl.rate-100 ELSE 0 END
+        ELSE CASE WHEN cl.rate>0 THEN cl.sale_rate*100.0/cl.rate-100 ELSE 0 END END AS additionalRatePercent,
+      cl.sale_rate AS saleRate,
+      cl.amount, cl.discount_percent AS discountPercent, cl.discount_amount AS discountAmount, cl.brand, cl.category
+      FROM challan_lines cl LEFT JOIN items i ON i.code=cl.item_code
+      WHERE cl.challan_number=? ORDER BY cl.line_number`).all(type, number) }
+    const proposed = { date: input.date, description: String(input.description || '').trim(), party: input.party, location: input.location, lines: input.lines }
     const changes = input.__baseline
-      ? mergeConcurrentFields(current, input.__baseline, proposed, [['date'], ['party'], ['location'], ['lines', 'lines']], 'challan')
+      ? mergeConcurrentFields(current, input.__baseline, proposed, [['date'], ['description'], ['party'], ['location'], ['lines', 'lines']], 'challan')
       : proposed
     const date = required(changes.date, 'Challan date')
     const parsedDate = new Date(`${date}T00:00:00Z`)
@@ -1087,14 +1131,35 @@ function createOfficeStore(db) {
     const lines = changes.lines.map((line) => {
       const itemCode = String(line.itemCode || '').trim()
       const itemLabel = String(line.itemLabel || '').trim()
-      const item = itemCode ? db.prepare('SELECT sale_rate, purchase_rate, item_rate, brand, category FROM items WHERE code=?').get(itemCode) : null
+      const item = itemCode ? db.prepare('SELECT description, sale_rate, purchase_rate, item_rate, brand, category FROM items WHERE code=?').get(itemCode) : null
       if (itemCode && !item) throw new Error(`Unknown item: ${itemCode}`)
       if (!itemCode && !itemLabel) throw new Error('Choose a catalog item or enter a line label')
       const quantity = positive(line.quantity, 'Quantity')
       const rate = nonNegative(line.rate ?? (item ? type === 'PURCHASE' ? item.purchase_rate : item.sale_rate : 0), 'Item rate')
+      const additionalRatePercent = line.additionalRatePercent === undefined
+        ? undefined
+        : validAdditionalRatePercent(line.additionalRatePercent)
+      const purchaseRate = nonNegative(
+        type === 'PURCHASE' && additionalRatePercent !== undefined
+          ? rate * (100 + additionalRatePercent) / 100
+          : line.purchaseRate ?? item?.purchase_rate ?? rate,
+        'Purchase rate',
+      )
+      const saleRate = nonNegative(
+        type === 'SALE' && additionalRatePercent !== undefined
+          ? rate * (100 + additionalRatePercent) / 100
+          : line.saleRate ?? item?.sale_rate ?? rate,
+        'Sale rate',
+      )
+      const purchaseRateRatioPercent = rate > 0 ? purchaseRate * 100 / rate : 0
+      const saleRateRatioPercent = rate > 0 ? saleRate * 100 / rate : 0
+      const resolvedAdditionalRatePercent = additionalRatePercent ??
+        (rate > 0
+          ? ((type === 'PURCHASE' ? purchaseRate : saleRate) * 100 / rate) - 100
+          : 0)
       const gross = quantity * rate
       const amount = nonNegative(line.amount ?? gross - nonNegative(line.discountAmount ?? gross * nonNegative(line.discountPercent ?? 0, 'Discount percent') / 100, 'Discount amount'), 'Applied amount')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, purchaseRate, saleRate, additionalRatePercent: resolvedAdditionalRatePercent, purchaseRateRatioPercent, saleRateRatioPercent, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -1102,13 +1167,14 @@ function createOfficeStore(db) {
       for (const [itemCode, quantity] of grouped) if (getStock(itemCode, location) < quantity) throw new Error(`Insufficient stock for ${itemCode} at ${location}`)
     }
     const total = lines.reduce((sum, line) => sum + line.amount, 0)
-    db.prepare('UPDATE challans SET date=?, party=?, location=?, total=? WHERE number=?').run(date, party, location, total, number)
+    const description = String(changes.description || '').trim()
+    db.prepare('UPDATE challans SET date=?, description=?, party=?, location=?, total=? WHERE number=?').run(date, description, party, location, total, number)
     db.prepare('DELETE FROM challan_lines WHERE challan_number=?').run(number)
-    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount, discount_percent, discount_amount, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insertLine = db.prepare('INSERT INTO challan_lines(challan_number, line_number, item_code, item_label, quantity, rate, amount, purchase_rate, purchase_rate_percent, sale_rate, sale_rate_percent, discount_percent, discount_amount, brand, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const insertMovement = db.prepare('INSERT INTO stock_movements(date, document, type, item_code, location, quantity, rate, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     lines.forEach((line, index) => {
       const signedQuantity = type === 'PURCHASE' ? line.quantity : -line.quantity
-      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.discountPercent, line.discountAmount, line.brand, line.category)
+      insertLine.run(number, index + 1, line.itemCode, line.itemLabel, line.quantity, line.rate, line.amount, line.purchaseRate, line.purchaseRateRatioPercent, line.saleRate, line.saleRateRatioPercent, line.discountPercent, line.discountAmount, line.brand, line.category)
       if (line.itemCode) insertMovement.run(date, number, type, line.itemCode, location, signedQuantity, line.amount / line.quantity, Math.sign(signedQuantity) * line.amount)
     })
     const affected = new Map(oldMovements.map((movement) => [`${movement.itemCode}\u0000${movement.location}`, movement]))
@@ -1117,7 +1183,7 @@ function createOfficeStore(db) {
       throw new Error(`This change would leave ${movement.itemCode} below zero stock at ${movement.location}`)
     }
     recordAudit('CHALLAN_UPDATE', number)
-    return { number, type, date, party, location, total, lines }
+    return { number, type, date, description, party, location, total, lines }
   })
 
   const deleteChallanTransaction = db.transaction((numberInput) => {
@@ -1204,7 +1270,7 @@ function createOfficeStore(db) {
     close: () => db.close(), backupTo, exportData, verifyDatabase,
     nextId: (entity) => nextOfficeId(entity),
     getDashboard, getCompanyProfile, hasCompanyProfile, saveCompanyProfile, hasAdminToolsPassword, configureAdminToolsPassword, verifyAdminToolsPassword, listAccounts, saveAccount, deleteAccount,
-    listItems, listItemAttributes, listItemCategories, saveItemCategory, saveItemAttribute, renameItemCategory, deleteItemCategory, saveItem, createItemFromChallan, deleteItem, listBanks, saveBank, deleteBank,
+    listItems, listItemAttributes, listItemCategories, saveItemCategory, saveItemAttribute, renameItemCategory, deleteItemCategory, saveItem, deleteItem, listBanks, saveBank, deleteBank,
     listChallans, postChallan: (input) => postChallanTransaction(input), updateChallan: (input) => updateChallanTransaction(input), deleteChallan: (number) => deleteChallanTransaction(number),
     getStock, listLocations, saveLocation, deleteLocation, listStockMovements, listOpeningBalances,
     addOpeningBalance: (input) => addOpeningBalanceTransaction(input), transferStock: (input) => transferStockTransaction(input),
@@ -1296,6 +1362,14 @@ function positive(value, label) {
 function nonNegative(value, label) {
   const number = Number(value)
   if (!Number.isFinite(number) || number < 0) throw new Error(`${label} cannot be negative`)
+  return number
+}
+
+function validAdditionalRatePercent(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < -100) {
+    throw new Error('Additional rate percent cannot be less than -100')
+  }
   return number
 }
 

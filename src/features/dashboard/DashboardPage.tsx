@@ -313,9 +313,11 @@ export function DashboardPage({
 export function CompanyBusinessCard({
   company,
   logo,
+  variant = "hero",
 }: {
   company: CompanyProfile | null;
   logo: string | null;
+  variant?: "hero" | "card";
 }) {
   const name = company?.name.trim() || "Company profile not set up";
   const details = [
@@ -323,24 +325,57 @@ export function CompanyBusinessCard({
     ["Phone", company?.phone.trim()],
     ["Fiscal year", company?.fiscalYear.trim()],
   ].filter((detail): detail is [string, string] => Boolean(detail[1]));
-  return (
-    <div
-      className="flex min-w-0 items-center gap-2"
-      aria-label="Company information"
-    >
-      <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground">
-        {logo ? (
-          <img src={logo} alt="" className="size-full object-contain p-1" />
-        ) : (
-          <Building2 className="size-4" />
-        )}
-      </span>
-      <div className="min-w-0">
-        <p className="max-w-64 truncate text-sm font-medium">{name}</p>
-        <p className="max-w-96 truncate text-xs text-muted-foreground">
-          {details.length ? details.map(([label, value]) => `${label}: ${value}`).join(" · ") : "Company details not set"}
-        </p>
+  if (variant === "hero") {
+    return (
+      <div
+        className="flex min-w-0 items-center gap-2"
+        aria-label="Company information"
+      >
+        <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+          {logo ? (
+            <img src={logo} alt="" className="size-full object-contain p-1" />
+          ) : (
+            <Building2 className="size-4" />
+          )}
+        </span>
+        <div className="min-w-0">
+          <p className="max-w-64 truncate text-sm font-medium">{name}</p>
+          <p className="max-w-96 truncate text-xs text-muted-foreground">
+            {details.length ? details.map(([label, value]) => `${label}: ${value}`).join(" · ") : "Company details not set"}
+          </p>
+        </div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <Card className="w-full">
+      <CardHeader className="flex flex-row items-center gap-4 p-5 sm:p-6">
+        <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg border bg-muted/50 text-muted-foreground">
+          {logo ? (
+            <img src={logo} alt="" className="size-full object-contain p-2" />
+          ) : (
+            <Building2 aria-hidden="true" className="size-8" />
+          )}
+        </span>
+        <CardTitle className="min-w-0 break-words text-lg leading-snug sm:text-xl">
+          {name}
+        </CardTitle>
+      </CardHeader>
+      {details.length > 0 && (
+        <CardContent className="pt-0">
+          <dl className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+            {details.map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-xs font-medium text-muted-foreground">
+                  {label}
+                </dt>
+                <dd className="mt-1 break-words text-sm">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
+      )}
+    </Card>
   );
 }

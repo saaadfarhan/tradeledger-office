@@ -77,7 +77,7 @@ export function LocationsPage({
   }
   return (
     <section className="flex flex-col gap-4">
-      <PageHeader title="Locations" description="Add and manage the locations used by inventory and challan entries." actions={<Button data-operator-new
+      <PageHeader title="Locations" description="Add and manage the locations used by inventory and challan entries." actions={<Button data-operator-new title="Add location (Ctrl+N)"
           onClick={() => {
             setName("");
             setEditorOpen(true);
@@ -201,7 +201,7 @@ export function LocationsPage({
               >
                 Cancel
               </Button>
-              <Button data-operator-save type="submit" disabled={saving || !name.trim()}>
+              <Button data-operator-save title="Add location (Ctrl+S)" type="submit" disabled={saving || !name.trim()}>
                 <Plus data-icon="inline-start" />
                 {saving ? "Saving…" : "Add location"}
               </Button>
@@ -258,7 +258,7 @@ export function OpeningBalancesPage({
   }
   return (
     <section className="flex flex-col gap-4">
-      <PageHeader title="Item Opening Balances" description="Record starting stock as an auditable inventory movement." actions={<Button data-operator-new onClick={() => setEditorOpen(true)} disabled={!items.length}>
+      <PageHeader title="Item Opening Balances" description="Record starting stock as an auditable inventory movement." actions={<Button data-operator-new title="Add opening balance (Ctrl+N)" onClick={() => setEditorOpen(true)} disabled={!items.length}>
           <Plus data-icon="inline-start" />
           Add opening balance
         </Button>} />
@@ -392,7 +392,7 @@ export function OpeningBalancesPage({
               >
                 Cancel
               </Button>
-              <Button data-operator-save
+              <Button data-operator-save title="Save opening balance (Ctrl+S)"
                 type="submit"
                 disabled={saving || !items.length || !itemCode || !location}
               >
@@ -472,7 +472,7 @@ export function TransferPage({
   }
   return (
     <section className="flex flex-col gap-4">
-      <PageHeader title="Stock Transfer" description="Move available quantity between locations without changing total office stock." actions={<Button data-operator-new
+      <PageHeader title="Stock Transfer" description="Move available quantity between locations without changing total office stock." actions={<Button data-operator-new title="Transfer stock (Ctrl+N)"
           onClick={() => setEditorOpen(true)}
           disabled={!items.length || locations.length < 2}
         >
@@ -607,7 +607,7 @@ export function TransferPage({
               >
                 Cancel
               </Button>
-              <Button data-operator-save
+              <Button data-operator-save title="Transfer stock (Ctrl+S)"
                 type="submit"
                 disabled={
                   saving ||
