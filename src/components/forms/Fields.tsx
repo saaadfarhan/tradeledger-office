@@ -160,6 +160,7 @@ export function FormSelect({
   emptyLabel,
   showEmptyHint = true,
   disableWhenEmpty = true,
+  searchable = false,
 }: {
   id?: string;
   value: string;
@@ -174,7 +175,9 @@ export function FormSelect({
   emptyLabel?: string;
   showEmptyHint?: boolean;
   disableWhenEmpty?: boolean;
+  searchable?: boolean;
 }) {
+  const [open, setOpen] = React.useState(false);
   const selectableOptions = options.filter((option) => option.value !== "");
   const hasChoices = selectableOptions.length > 0;
   const isDisabled = disabled || (disableWhenEmpty && !hasChoices);
@@ -185,44 +188,125 @@ export function FormSelect({
   const selectItems = hasClearOption
     ? [{ value: clearValue, label: "Clear selection" }, ...selectableOptions]
     : selectableOptions;
+  const selectedOption = selectableOptions.find(
+    (option) => option.value === value,
+  );
+  const searchLabel = placeholder.replace(/^select /i, "").toLowerCase();
+  const selectControl = searchable ? (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-label={ariaLabel ?? placeholder}
+            disabled={isDisabled}
+            className={`h-9 w-full min-w-0 justify-between px-3 font-normal ${triggerClassName ?? ""}`}
+          />
+        }
+      >
+        <span
+          className={
+            selectedOption
+              ? "truncate text-left"
+              : "truncate text-left text-muted-foreground"
+          }
+        >
+          {selectedOption?.label ?? (hasChoices ? placeholder : (emptyLabel ?? "No options available"))}
+        </span>
+        <ChevronDown data-icon="inline-end" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(28rem,calc(100vw-2rem))] p-0"
+      >
+        <Command>
+          <CommandInput placeholder={`Search ${searchLabel}…`} />
+          <CommandList>
+            <CommandEmpty>
+              {emptyHint ?? `No matching ${searchLabel}.`}
+            </CommandEmpty>
+            <CommandGroup>
+              {hasClearOption && (
+                <CommandItem
+                  value="clear selection"
+                  onSelect={() => {
+                    onChange("");
+                    setOpen(false);
+                    focusNextFormControlAfterSelection(id);
+                  }}
+                >
+                  Clear selection
+                </CommandItem>
+              )}
+              {selectableOptions.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  value={`${option.label} ${option.value}`}
+                  onSelect={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                    focusNextFormControlAfterSelection(id);
+                  }}
+                >
+                  <span className="truncate">{option.label}</span>
+                  {value === option.value && (
+                    <Check
+                      data-slot="select-item-indicator"
+                      className="ml-auto"
+                    />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  ) : (
+    <Select
+      items={selectItems}
+      value={value || null}
+      onValueChange={(next) => {
+        onChange(next === clearValue ? "" : (next ?? ""));
+        focusNextFormControlAfterSelection(id);
+      }}
+      disabled={isDisabled}
+    >
+      <SelectTrigger
+        id={id}
+        aria-label={ariaLabel}
+        className={`${hasClearOption ? "h-9 w-full pr-9" : "h-9 w-full"} ${triggerClassName ?? ""}`}
+      >
+        <SelectValue
+          placeholder={
+            hasChoices ? placeholder : (emptyLabel ?? "No options available")
+          }
+        />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {hasClearOption && (
+            <SelectItem key="clear-selection" value={clearValue}>
+              Clear selection
+            </SelectItem>
+          )}
+          {selectableOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
   return (
     <div className="grid min-w-0 gap-1.5">
       <div className="relative min-w-0">
-        <Select
-          items={selectItems}
-          value={value || null}
-          onValueChange={(next) => {
-            onChange(next === clearValue ? "" : (next ?? ""));
-            focusNextFormControlAfterSelection(id);
-          }}
-          disabled={isDisabled}
-        >
-          <SelectTrigger
-            id={id}
-            aria-label={ariaLabel}
-            className={`${hasClearOption ? "h-9 w-full pr-9" : "h-9 w-full"} ${triggerClassName ?? ""}`}
-          >
-            <SelectValue
-              placeholder={
-                hasChoices ? placeholder : (emptyLabel ?? "No options available")
-              }
-            />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {hasClearOption && (
-                <SelectItem key="clear-selection" value={clearValue}>
-                  Clear selection
-                </SelectItem>
-              )}
-              {selectableOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        {selectControl}
         {hasClearOption && (
           <Button
             type="button"
