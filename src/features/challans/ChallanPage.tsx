@@ -63,7 +63,6 @@ import {
   SearchableItemSelect,
 } from "@/components/forms/Fields";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Kbd } from "@/components/ui/kbd";
 
 function PrinterIcon() {
   return <Printer className="mr-2 size-4" />;
@@ -518,15 +517,7 @@ export function ChallanPage({
           }
         }}
       >
-        <DialogContent
-          onKeyDown={(event) => {
-            if (event.altKey && event.key === "Enter") {
-              event.preventDefault();
-              addLine(true);
-            }
-          }}
-          className="flex max-h-[92vh] w-[min(98vw,84rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
-        >
+        <DialogContent className="flex max-h-[92vh] w-[min(98vw,84rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
           <DialogHeader className="border-b px-6 py-5">
             <DialogTitle>
               {editingNumber
@@ -818,6 +809,12 @@ export function ChallanPage({
                                   additionalRatePercent: event.target.value,
                                 })
                               }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  addLine(true);
+                                }
+                              }}
                             />
                             <InputGroupAddon align="inline-end">
                               %
@@ -848,14 +845,11 @@ export function ChallanPage({
             <Button
               type="button"
               variant="outline"
-              title="Add line (Alt+Enter)"
+              title="Add line (Enter on Percent)"
               onClick={() => addLine(true)}
             >
               <Plus data-icon="inline-start" />
-              Add line{" "}
-              <Kbd className="ml-1 h-4 min-w-0 px-1 text-[10px]">
-                Alt+Enter
-              </Kbd>
+              Add line
             </Button>
             <div className="flex flex-wrap items-center justify-end gap-4">
               <span className="text-sm text-muted-foreground">

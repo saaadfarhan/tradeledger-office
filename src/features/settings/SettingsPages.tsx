@@ -393,8 +393,8 @@ export function KeybindingsPage() {
             </div>
           ))}
           <div className="flex flex-wrap items-center justify-between gap-3 py-3">
-            <span className="text-sm">Add a line in challan, voucher, or journal voucher editors</span>
-            <Kbd className="h-6 px-2 font-mono text-foreground">Alt+Enter</Kbd>
+            <span className="text-sm">Add a line from the last field in challan, voucher, or journal voucher editors</span>
+            <Kbd className="h-6 px-2 font-mono text-foreground">Enter</Kbd>
           </div>
         </CardContent>
       </Card>
