@@ -430,6 +430,7 @@ export function VoucherEntryPage({
                     onChange={(accountCode) => updateEntryLine(index, method, { accountCode })}
                     options={accounts.map((account) => ({ value: account.code, label: `${account.description} — ${account.code}` }))}
                     placeholder="Select account"
+                    searchable
                     emptyHint="Add accounts in Chart of Accounts, then return here."
                   />
                 </TableCell>
@@ -441,7 +442,40 @@ export function VoucherEntryPage({
                           <PersistentSelectField
                             id={`voucher-cheque-${index < 0 ? "empty" : index}`}
                             value={line.chequeNumber}
-                            onChange={(chequeNumber) => updateEntryLine(index, method, { chequeNumber })}
+                            onChange={(chequeNumber) => {
+                              const cheque = cheques.find(
+                                (candidate) => candidate.number === chequeNumber,
+                              );
+                              const amountSide =
+                                cheque?.direction === "PAYMENT"
+                                  ? line.accountCode === cheque.party
+                                    ? "debit"
+                                    : "credit"
+                                  : cheque?.direction === "RECEIPT"
+                                    ? line.accountCode === cheque.party
+                                      ? "credit"
+                                      : "debit"
+                                    : Number(line.credit) > 0
+                                      ? "credit"
+                                      : Number(line.debit) > 0
+                                        ? "debit"
+                                        : undefined;
+                              updateEntryLine(index, method, {
+                                chequeNumber,
+                                ...(cheque && amountSide === "debit"
+                                  ? {
+                                      debit: String(cheque.amount),
+                                      credit: "",
+                                    }
+                                  : {}),
+                                ...(cheque && amountSide === "credit"
+                                  ? {
+                                      debit: "",
+                                      credit: String(cheque.amount),
+                                    }
+                                  : {}),
+                              });
+                            }}
                             options={cheques.map((cheque) => cheque.number)}
                             searchable
                             triggerClassName="[&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:overflow-hidden [&_[data-slot=select-value]]:text-ellipsis"
@@ -462,7 +496,12 @@ export function VoucherEntryPage({
                   <Input aria-label={`Debit line ${index < 0 ? "new" : index + 1}`} className="min-w-0" type="number" min="0" step="any" value={line.debit} onChange={(event) => updateEntryLine(index, method, { debit: event.target.value, credit: event.target.value ? "" : line.credit })} />
                 </TableCell>
                 <TableCell className="min-w-0 align-top">
-                  <Input aria-label={`Credit line ${index < 0 ? "new" : index + 1}`} className="min-w-0" type="number" min="0" step="any" value={line.credit} onChange={(event) => updateEntryLine(index, method, { credit: event.target.value, debit: event.target.value ? "" : line.debit })} />
+                  <Input aria-label={`Credit line ${index < 0 ? "new" : index + 1}`} className="min-w-0" type="number" min="0" step="any" value={line.credit} onChange={(event) => updateEntryLine(index, method, { credit: event.target.value, debit: event.target.value ? "" : line.debit })} onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addEntryLine(true);
+                    }
+                  }} />
                 </TableCell>
                 <TableCell className="align-top">
                   <Button type="button" size="icon-sm" variant="ghost" aria-label="Remove line" disabled={index < 0 || (!showJournalLineFields && lines.length <= 2)} onClick={() => setLines((current) => current.filter((_, row) => row !== index))}>
@@ -497,15 +536,7 @@ export function VoucherEntryPage({
         }
       />
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent
-          onKeyDown={(event) => {
-            if (event.altKey && event.key === "Enter") {
-              event.preventDefault();
-              addEntryLine(true);
-            }
-          }}
-          className="flex max-h-[92vh] w-[min(96vw,64rem)] flex-col gap-0 overflow-y-auto p-0 sm:max-w-none"
-        >
+        <DialogContent className="flex max-h-[92vh] w-[min(96vw,64rem)] flex-col gap-0 overflow-y-auto p-0 sm:max-w-none">
           <DialogHeader className="border-b px-6 py-5">
             <DialogTitle>
               {editing
@@ -558,7 +589,7 @@ export function VoucherEntryPage({
                         className="flex-1"
                       />
                       <Button
-                        title="Add line (Alt+Enter)"
+                        title="Add line (Enter on Credit)"
                         type="button"
                         variant="outline"
                         size="sm"
@@ -706,6 +737,7 @@ export function VoucherEntryPage({
                     label: `${account.description} — ${account.code}`,
                   }))}
                   placeholder="Select party account"
+                  searchable
                 />
               </Field>
               <Field label="Amount" id="journal-new-cheque-amount" required>
