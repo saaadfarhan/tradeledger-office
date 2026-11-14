@@ -135,6 +135,8 @@ contextBridge.exposeInMainWorld('office', Object.freeze({
     movements: () => invoke('stock:movements'),
     openings: () => invoke('stock:openings'),
     addOpening: (value) => invoke('stock:opening:add', value),
+    updateOpening: (value) => invoke('stock:opening:update', value),
+    removeOpening: (id) => invoke('stock:opening:remove', id),
     transfer: (value) => invoke('stock:transfer', value),
   },
   locations: {

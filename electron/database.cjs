@@ -884,6 +884,22 @@ function createOfficeStore(db) {
   function saveLocation(input) {
     const name = required(typeof input === 'string' ? input : input?.name, 'Location name').replace(/\s+/g, ' ')
     if (name.length > 100) throw new Error('Location name must be 100 characters or fewer')
+    const originalName = typeof input === 'object' && input ? String(input.originalName ?? '').trim() : ''
+    if (originalName) {
+      if (!db.prepare('SELECT 1 FROM locations WHERE name=?').get(originalName)) throw new Error('Location does not exist')
+      if (db.prepare('SELECT 1 FROM locations WHERE name=? AND name<>?').get(name, originalName)) {
+        throw new Error(`Location already exists: ${name}`)
+      }
+      db.transaction(() => {
+        db.prepare('UPDATE locations SET name=? WHERE name=?').run(name, originalName)
+        db.prepare('UPDATE stock_movements SET location=? WHERE location=?').run(name, originalName)
+        db.prepare('UPDATE challans SET location=? WHERE location=?').run(name, originalName)
+        db.prepare('UPDATE stock_transfers SET from_location=? WHERE from_location=?').run(name, originalName)
+        db.prepare('UPDATE stock_transfers SET to_location=? WHERE to_location=?').run(name, originalName)
+      })()
+      recordAudit('LOCATION_RENAME', `${originalName} → ${name}`)
+      return name
+    }
     if (db.prepare('SELECT 1 FROM locations WHERE name=?').get(name)) throw new Error(`Location already exists: ${name}`)
     db.prepare('INSERT INTO locations(name) VALUES (?)').run(name)
     recordAudit('LOCATION_CREATE', name)
@@ -912,18 +928,87 @@ function createOfficeStore(db) {
       WHERE m.type='OPENING' ORDER BY m.id DESC`).all()
   }
 
+  function validOpeningDate(value) {
+    const date = required(value, 'Opening date')
+    const parsedDate = new Date(`${date}T00:00:00.000Z`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) {
+      throw new Error('Opening date must be a real date in yyyy-MM-dd format')
+    }
+    return date
+  }
+
+  function saveOpeningItemAttributes(itemCode, item, input) {
+    const brand = String(input.brand ?? item.brand).trim() || 'Unbranded'
+    const category = String(input.category ?? item.category).trim() || 'Uncategorized'
+    if (brand.length > 100 || category.length > 100) {
+      throw new Error('Brand and category names must be 100 characters or fewer')
+    }
+    db.prepare('UPDATE items SET brand=?, category=? WHERE code=?').run(brand, category, itemCode)
+    db.prepare('INSERT OR IGNORE INTO item_brands(name) VALUES (?)').run(brand)
+    db.prepare('INSERT OR IGNORE INTO item_categories(name) VALUES (?)').run(category)
+    if (brand !== item.brand || category !== item.category) recordAudit('ITEM_UPDATE', itemCode)
+  }
+
   const addOpeningBalanceTransaction = db.transaction((input) => {
     const itemCode = required(input.itemCode, 'Item code')
-    const item = db.prepare('SELECT purchase_rate AS rate FROM items WHERE code=?').get(itemCode)
+    const item = db.prepare('SELECT purchase_rate AS rate, brand, category FROM items WHERE code=?').get(itemCode)
     if (!item) throw new Error(`Unknown item: ${itemCode}`)
     const location = knownLocation(input.location)
     const quantity = positive(input.quantity, 'Opening quantity')
-    const rate = nonNegative(item.rate, 'Purchase rate')
+    const rate = Math.round(nonNegative(input.rate ?? item.rate, 'Opening rate'))
+    const date = input.date ? validOpeningDate(input.date) : new Date().toISOString().slice(0, 10)
     const amount = quantity * rate
+    saveOpeningItemAttributes(itemCode, item, input)
     db.prepare(`INSERT INTO stock_movements(date, document, type, item_code, location, quantity, rate, amount)
-      VALUES (?, 'OPENING', 'OPENING', ?, ?, ?, ?, ?)`).run(new Date().toISOString().slice(0, 10), itemCode, location, quantity, rate, amount)
+      VALUES (?, 'OPENING', 'OPENING', ?, ?, ?, ?, ?)`).run(date, itemCode, location, quantity, rate, amount)
     recordAudit('OPENING_BALANCE_SAVE', `${itemCode} · ${location} · ${quantity}`)
     return { itemCode, location, quantity, rate, amount }
+  })
+
+  const updateOpeningBalanceTransaction = db.transaction((input) => {
+    const id = Number(input.id)
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Opening balance ID is invalid')
+    const current = db.prepare(`SELECT id, item_code AS itemCode, location, quantity
+      FROM stock_movements WHERE id=? AND type='OPENING'`).get(id)
+    if (!current) throw new Error('Opening balance does not exist')
+    const itemCode = required(input.itemCode, 'Item code')
+    const item = db.prepare('SELECT brand, category FROM items WHERE code=?').get(itemCode)
+    if (!item) throw new Error(`Unknown item: ${itemCode}`)
+    const location = knownLocation(input.location)
+    const quantity = positive(input.quantity, 'Opening quantity')
+    const rate = Math.round(nonNegative(input.rate, 'Opening rate'))
+    const date = validOpeningDate(input.date)
+    const currentOldBalance = getStock(current.itemCode, current.location)
+    const oldBalanceAfterEdit = currentOldBalance - current.quantity
+    if (current.itemCode === itemCode && current.location === location) {
+      if (oldBalanceAfterEdit + quantity < 0) {
+        throw new Error(`Cannot edit opening balance: ${itemCode} has downstream stock activity at ${location}`)
+      }
+    } else {
+      if (oldBalanceAfterEdit < 0) {
+        throw new Error(`Cannot move opening balance: ${current.itemCode} has downstream stock activity at ${current.location}`)
+      }
+      if (getStock(itemCode, location) + quantity < 0) {
+        throw new Error('Opening balance would make stock negative')
+      }
+    }
+    saveOpeningItemAttributes(itemCode, item, input)
+    db.prepare(`UPDATE stock_movements SET date=?, item_code=?, location=?, quantity=?, rate=?, amount=?
+      WHERE id=? AND type='OPENING'`).run(date, itemCode, location, quantity, rate, quantity * rate, id)
+    recordAudit('OPENING_BALANCE_UPDATE', `${id} · ${itemCode} · ${location} · ${quantity}`)
+  })
+
+  const deleteOpeningBalanceTransaction = db.transaction((input) => {
+    const id = Number(input)
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Opening balance ID is invalid')
+    const movement = db.prepare(`SELECT item_code AS itemCode, location, quantity
+      FROM stock_movements WHERE id=? AND type='OPENING'`).get(id)
+    if (!movement) throw new Error('Opening balance does not exist')
+    if (getStock(movement.itemCode, movement.location) - movement.quantity < 0) {
+      throw new Error(`Cannot delete opening balance: ${movement.itemCode} has downstream stock activity at ${movement.location}`)
+    }
+    db.prepare('DELETE FROM stock_movements WHERE id=? AND type=\'OPENING\'').run(id)
+    recordAudit('OPENING_BALANCE_DELETE', `${id} · ${movement.itemCode} · ${movement.location}`)
   })
 
   const transferStockTransaction = db.transaction((input) => {
@@ -1056,6 +1141,9 @@ function createOfficeStore(db) {
       const additionalRatePercent = line.additionalRatePercent === undefined
         ? undefined
         : validAdditionalRatePercent(line.additionalRatePercent)
+      const discountPercent = line.discountPercent === undefined
+        ? Math.max(0, -(additionalRatePercent ?? 0))
+        : validDiscountPercent(line.discountPercent)
       const purchaseRate = nonNegative(
         type === 'PURCHASE' && additionalRatePercent !== undefined
           ? rate * (100 + additionalRatePercent) / 100
@@ -1075,8 +1163,13 @@ function createOfficeStore(db) {
           ? ((type === 'PURCHASE' ? purchaseRate : saleRate) * 100 / rate) - 100
           : 0)
       const gross = quantity * rate
-      const amount = nonNegative(line.amount ?? gross - nonNegative(line.discountAmount ?? gross * nonNegative(line.discountPercent ?? 0, 'Discount percent') / 100, 'Discount amount'), 'Applied amount')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, purchaseRate, saleRate, additionalRatePercent: resolvedAdditionalRatePercent, purchaseRateRatioPercent, saleRateRatioPercent, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
+      const discountAmount = nonNegative(
+        line.discountAmount ?? gross * discountPercent / 100,
+        'Discount amount',
+      )
+      if (discountAmount > gross) throw new Error('Discount cannot exceed line value')
+      const amount = nonNegative(line.amount ?? gross - discountAmount, 'Applied amount')
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, purchaseRate, saleRate, additionalRatePercent: resolvedAdditionalRatePercent, purchaseRateRatioPercent, saleRateRatioPercent, discountPercent, discountAmount, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -1139,6 +1232,9 @@ function createOfficeStore(db) {
       const additionalRatePercent = line.additionalRatePercent === undefined
         ? undefined
         : validAdditionalRatePercent(line.additionalRatePercent)
+      const discountPercent = line.discountPercent === undefined
+        ? Math.max(0, -(additionalRatePercent ?? 0))
+        : validDiscountPercent(line.discountPercent)
       const purchaseRate = nonNegative(
         type === 'PURCHASE' && additionalRatePercent !== undefined
           ? rate * (100 + additionalRatePercent) / 100
@@ -1158,8 +1254,13 @@ function createOfficeStore(db) {
           ? ((type === 'PURCHASE' ? purchaseRate : saleRate) * 100 / rate) - 100
           : 0)
       const gross = quantity * rate
-      const amount = nonNegative(line.amount ?? gross - nonNegative(line.discountAmount ?? gross * nonNegative(line.discountPercent ?? 0, 'Discount percent') / 100, 'Discount amount'), 'Applied amount')
-      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, purchaseRate, saleRate, additionalRatePercent: resolvedAdditionalRatePercent, purchaseRateRatioPercent, saleRateRatioPercent, discountPercent: 0, discountAmount: 0, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
+      const discountAmount = nonNegative(
+        line.discountAmount ?? gross * discountPercent / 100,
+        'Discount amount',
+      )
+      if (discountAmount > gross) throw new Error('Discount cannot exceed line value')
+      const amount = nonNegative(line.amount ?? gross - discountAmount, 'Applied amount')
+      return { itemCode: itemCode || null, itemLabel: itemCode ? null : itemLabel, quantity, rate, purchaseRate, saleRate, additionalRatePercent: resolvedAdditionalRatePercent, purchaseRateRatioPercent, saleRateRatioPercent, discountPercent, discountAmount, brand: String(line.brand ?? item?.brand ?? ''), category: String(line.category ?? item?.category ?? ''), amount }
     })
     if (type === 'SALE') {
       const grouped = new Map()
@@ -1273,7 +1374,10 @@ function createOfficeStore(db) {
     listItems, listItemAttributes, listItemCategories, saveItemCategory, saveItemAttribute, renameItemCategory, deleteItemCategory, saveItem, deleteItem, listBanks, saveBank, deleteBank,
     listChallans, postChallan: (input) => postChallanTransaction(input), updateChallan: (input) => updateChallanTransaction(input), deleteChallan: (number) => deleteChallanTransaction(number),
     getStock, listLocations, saveLocation, deleteLocation, listStockMovements, listOpeningBalances,
-    addOpeningBalance: (input) => addOpeningBalanceTransaction(input), transferStock: (input) => transferStockTransaction(input),
+    addOpeningBalance: (input) => addOpeningBalanceTransaction(input),
+    updateOpeningBalance: (input) => updateOpeningBalanceTransaction(input),
+    deleteOpeningBalance: (id) => deleteOpeningBalanceTransaction(id),
+    transferStock: (input) => transferStockTransaction(input),
     listVouchers, saveVoucher: (input) => saveVoucherTransaction(input), deleteVoucher, getVoucherType,
     listCheques, saveCheque, deleteCheque: (number) => deleteChequeTransaction(number),
     getChallanType: (number) => db.prepare('SELECT type FROM challans WHERE number=?').get(number)?.type ?? null,
@@ -1369,6 +1473,14 @@ function validAdditionalRatePercent(value) {
   const number = Number(value)
   if (!Number.isFinite(number) || number < -100) {
     throw new Error('Additional rate percent cannot be less than -100')
+  }
+  return number
+}
+
+function validDiscountPercent(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < 0 || number > 100) {
+    throw new Error('Discount percent must be between 0 and 100')
   }
   return number
 }

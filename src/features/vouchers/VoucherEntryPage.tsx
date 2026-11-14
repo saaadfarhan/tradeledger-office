@@ -310,11 +310,17 @@ export function VoucherEntryPage({
         : "CASH",
     );
   };
+  const isEmptyEntryLine = (line: EntryLine) =>
+    !line.accountCode &&
+    !line.debit &&
+    !line.credit &&
+    !line.chequeNumber;
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const enteredLines = lines.filter((line) => !isEmptyEntryLine(line));
     if (
       showJournalLineFields &&
-      lines.some(
+      enteredLines.some(
         (line) => line.paymentMethod === "CHEQUE" && !line.chequeNumber,
       )
     ) {
@@ -323,7 +329,7 @@ export function VoucherEntryPage({
     }
     setSaving(true);
     try {
-      const voucherLines: Voucher["lines"] = lines.map((line) => ({
+      const voucherLines: Voucher["lines"] = enteredLines.map((line) => ({
         accountCode: line.accountCode,
         debit: Number(line.debit || 0),
         credit: Number(line.credit || 0),
@@ -564,6 +570,7 @@ export function VoucherEntryPage({
                       id="voucher-date"
                       value={date}
                       onChange={setDate}
+                      required
                     />
                   </Field>
                   <Field label="Reference" id="voucher-reference">
@@ -643,13 +650,13 @@ export function VoucherEntryPage({
                       </Badge>
                     </div>
                   </div>
-                <DialogFooter className="flex-row justify-end gap-2 border-t pt-4">
+                <DialogFooter className="mt-0 flex-row justify-end gap-2 border-t px-6 py-5 pb-6">
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => void clear()}
+                    onClick={() => setEditorOpen(false)}
                   >
-                    Clear form
+                    Cancel
                   </Button>
                   <Button
                     data-operator-save
@@ -721,6 +728,7 @@ export function VoucherEntryPage({
                   id="journal-new-cheque-date"
                   value={newChequeDate}
                   onChange={setNewChequeDate}
+                  required
                 />
               </Field>
               <Field

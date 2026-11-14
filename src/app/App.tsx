@@ -15,6 +15,7 @@ import {
   BookOpen,
   Building2,
   Database,
+  FileBarChart,
   FileClock,
   Home,
   Keyboard,
@@ -186,7 +187,7 @@ const navigationGroups: Array<{
       "cheques",
     ],
   },
-  { title: "Reports", icon: Search, pages: ["reports"] },
+  { title: "Reports", icon: FileBarChart, pages: ["reports"] },
   {
     title: "Office Admin",
     icon: Settings2,
@@ -325,7 +326,11 @@ export function App() {
   const [history, setHistory] = useState<Page[]>(["home"]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [openNavGroup, setOpenNavGroup] = useState("");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [sidebarFocused, setSidebarFocused] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const sidebarPointerInteraction = useRef(false);
+  const sidebarExpanded = sidebarHovered || sidebarFocused || sidebarPinned;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(
     () => window.localStorage.getItem("purchase-sale-theme") === "dark",
@@ -867,7 +872,7 @@ export function App() {
       icon: ArrowDownToLine,
     },
     { id: "sale" as const, label: "Sale Challans", icon: ArrowUpFromLine },
-    { id: "reports" as const, label: "Reports", icon: FileClock },
+    { id: "reports" as const, label: "Reports", icon: FileBarChart },
     { id: "users" as const, label: "User Rights", icon: Shield },
     { id: "audit" as const, label: "Audit Log", icon: FileClock },
     { id: "database" as const, label: "Database Tools", icon: Database },
@@ -1234,7 +1239,7 @@ export function App() {
                       </AccordionItem>;
                     })}
                   </Accordion>
-                  {permittedNav.some(({ id }) => id === "reports") && <Button variant={page === "reports" ? "secondary" : "ghost"} aria-current={page === "reports" ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { navigate("reports"); setMobileNavOpen(false); }}><FileClock />Reports</Button>}
+                  {permittedNav.some(({ id }) => id === "reports") && <Button variant={page === "reports" ? "secondary" : "ghost"} aria-current={page === "reports" ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { navigate("reports"); setMobileNavOpen(false); }}><FileBarChart />Reports</Button>}
                   <Accordion value={openNavGroup ? [openNavGroup] : []} onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}>
                     {navigationGroupsAfterReports.map((group) => {
                       const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
@@ -1252,9 +1257,41 @@ export function App() {
             </Sheet>
             <aside
               aria-label="Main navigation"
-              className={`hidden shrink-0 flex-col overflow-y-auto border-r bg-muted/20 p-3 transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-16 gap-2" : "w-60 p-4"}`}
+              className="relative z-20 hidden w-16 shrink-0 md:block"
             >
-              {sidebarCollapsed ? (
+              <div
+                className={`absolute inset-y-0 left-0 flex flex-col overflow-hidden border-r bg-background p-3 transition-[width,box-shadow] duration-200 ${sidebarExpanded ? "w-60 shadow-lg" : "w-16"}`}
+                onMouseEnter={() => setSidebarHovered(true)}
+                onMouseLeave={() => setSidebarHovered(false)}
+                onPointerDownCapture={() => {
+                  sidebarPointerInteraction.current = true;
+                  setSidebarFocused(false);
+                }}
+                onKeyDownCapture={() => {
+                  sidebarPointerInteraction.current = false;
+                  setSidebarFocused(true);
+                }}
+                onFocusCapture={() => {
+                  if (!sidebarPointerInteraction.current) {
+                    setSidebarFocused(true);
+                  }
+                }}
+                onBlurCapture={(event) => {
+                  if (
+                    !event.currentTarget.contains(
+                      event.relatedTarget as Node | null,
+                    )
+                  ) {
+                    setSidebarFocused(false);
+                  }
+                }}
+              >
+                <div className="relative min-h-0 flex-1 overflow-hidden">
+                  <div
+                    aria-hidden={sidebarExpanded}
+                    inert={sidebarExpanded}
+                    className={`absolute inset-0 overflow-x-hidden overflow-y-auto transition-opacity duration-150 ${sidebarExpanded ? "pointer-events-none opacity-0" : "opacity-100"}`}
+                  >
                 <div className="flex flex-col items-center gap-2">
                   <Button
                     variant={page === "home" ? "secondary" : "ghost"}
@@ -1274,7 +1311,7 @@ export function App() {
                         aria-label="Reports"
                         title="Reports"
                         onClick={() => navigate("reports")}
-                      ><FileClock /></Button> : null;
+                      ><FileBarChart /></Button> : null;
                     }
                     const hasVisiblePages = permittedNav.some(({ id }) =>
                       group.pages.includes(id),
@@ -1291,7 +1328,6 @@ export function App() {
                         title={group.title}
                         onClick={() => {
                           setOpenNavGroup(group.title);
-                          setSidebarCollapsed(false);
                         }}
                       >
                         <group.icon />
@@ -1299,7 +1335,12 @@ export function App() {
                     );
                   })}
                 </div>
-              ) : (
+                  </div>
+                  <div
+                    aria-hidden={!sidebarExpanded}
+                    inert={!sidebarExpanded}
+                    className={`absolute inset-y-0 left-0 w-[13.5rem] overflow-x-hidden overflow-y-auto transition-opacity duration-150 ${sidebarExpanded ? "opacity-100" : "pointer-events-none opacity-0"}`}
+                  >
                 <>
                   <div className="border-b border-border">
                     <Button
@@ -1362,7 +1403,7 @@ export function App() {
                       aria-current={page === "reports" ? "page" : undefined}
                       className={`${sidebarHeadingClassName} flex w-full items-center justify-start gap-3`}
                       onClick={() => navigate("reports")}
-                    ><FileClock />Reports</Button>
+                    ><FileBarChart />Reports</Button>
                   </div>}
                   <Accordion
                     value={openNavGroup ? [openNavGroup] : []}
@@ -1380,23 +1421,26 @@ export function App() {
                     })}
                   </Accordion>
                 </>
-              )}
+                  </div>
+                </div>
               <div
-                className={`mt-auto flex border-t border-border pt-3 ${sidebarCollapsed ? "justify-center" : "justify-end"}`}
+                className={`mt-auto flex shrink-0 border-t border-border pt-3 ${sidebarExpanded ? "justify-end" : "justify-center"}`}
               >
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   aria-label={
-                    sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                    sidebarPinned ? "Collapse sidebar" : "Keep sidebar expanded"
                   }
+                  aria-pressed={sidebarPinned}
                   title={
-                    sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                    sidebarPinned ? "Collapse sidebar" : "Keep sidebar expanded"
                   }
-                  onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+                  onClick={() => setSidebarPinned((pinned) => !pinned)}
                 >
-                  {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+                  {sidebarPinned ? <PanelLeftClose /> : <PanelLeftOpen />}
                 </Button>
+              </div>
               </div>
             </aside>
             <main className="app-workspace mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto p-3 sm:p-5 lg:p-7">
@@ -1555,8 +1599,10 @@ export function App() {
                 <LocationsPage
                   locations={locations}
                   movements={stockMovements}
-                  onSave={async (name) => {
-                    await window.office.locations.save(name);
+                  onSave={async (name, originalName) => {
+                    await window.office.locations.save(
+                      originalName ? { name, originalName } : name,
+                    );
                     await refresh();
                   }}
                   onDelete={async (name) => {
@@ -1574,6 +1620,14 @@ export function App() {
                     await window.office.stock.addOpening(value);
                     await refresh();
                     toast.success("Opening balance added");
+                  }}
+                  onUpdate={async (value) => {
+                    await window.office.stock.updateOpening(value);
+                    await refresh();
+                  }}
+                  onDelete={async (id) => {
+                    await window.office.stock.removeOpening(id);
+                    await refresh();
                   }}
                 />
               )}
@@ -1597,7 +1651,6 @@ export function App() {
                       row.type === (page === "purchase" ? "PURCHASE" : "SALE"),
                   )}
                   items={items}
-                  movements={stockMovements}
                   accounts={accounts}
                   locations={locations}
                   company={companyProfile}

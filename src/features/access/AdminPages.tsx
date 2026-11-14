@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { Download, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Download,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  ShieldOff,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -378,11 +386,13 @@ export function UserRightsPage({
                         <TableCell>{user.permissions.length}</TableCell>
                         <TableCell className="text-right">
                           <Button
-                            size="sm"
-                            variant="outline"
+                            size="icon-sm"
+                            variant="ghost"
+                            title={`Edit rights for ${user.username}`}
+                            aria-label={`Edit rights for ${user.username}`}
                             onClick={() => selectUser(user)}
                           >
-                            Edit rights
+                            <Pencil />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -612,11 +622,13 @@ export function UserRightsPage({
                         <TableCell className="text-right">
                           {!device.revokedAt && (
                             <Button
-                              size="sm"
-                              variant="outline"
+                              size="icon-sm"
+                              variant="ghost"
+                              title={`Revoke device ${device.name}`}
+                              aria-label={`Revoke device ${device.name}`}
                               onClick={() => void revokeDevice(device.deviceId)}
                             >
-                              Revoke
+                              <ShieldOff />
                             </Button>
                           )}
                         </TableCell>

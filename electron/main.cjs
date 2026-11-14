@@ -633,6 +633,8 @@ function registerIpc() {
   registerHandler('stock:movements', () => officeStore.listStockMovements(), ['Reports', 'Transfer', 'Item Opening Balances', 'Locations', 'Items', 'Purchase Challans', 'Sale Challans'])
   registerHandler('stock:openings', () => officeStore.listOpeningBalances(), 'Item Opening Balances')
   registerHandler('stock:opening:add', (value) => officeStore.addOpeningBalance(value), ['Item Opening Balances', 'Items'])
+  registerHandler('stock:opening:update', (value) => officeStore.updateOpeningBalance(value), ['Item Opening Balances', 'Items'])
+  registerHandler('stock:opening:remove', (id) => officeStore.deleteOpeningBalance(id), 'Item Opening Balances')
   registerHandler('stock:transfer', (value) => officeStore.transferStock(value), 'Transfer')
   registerHandler('users:list', () => officeStore.listUsers(), 'User Rights')
   registerHandler('users:save', (value) => officeStore.saveUser(value), 'User Rights')

@@ -429,28 +429,28 @@
 }
 .print-challan .print-table th:nth-child(1),
 .print-challan .print-table td:nth-child(1) {
-  width: 6%;
+  width: 5%;
   text-align: center;
 }
 .print-challan .print-table th:nth-child(2),
 .print-challan .print-table td:nth-child(2) {
-  width: 12%;
+  width: 10%;
 }
 .print-challan .print-table th:nth-child(3),
 .print-challan .print-table td:nth-child(3) {
-  width: 28%;
+  width: 24%;
 }
 .print-challan .print-table th:nth-child(4),
 .print-challan .print-table td:nth-child(4) {
-  width: 10%;
+  width: 9%;
 }
 .print-challan .print-table th:nth-child(5),
 .print-challan .print-table td:nth-child(5) {
-  width: 11%;
+  width: 9%;
 }
 .print-challan .print-table th:nth-child(6),
 .print-challan .print-table td:nth-child(6) {
-  width: 11%;
+  width: 10%;
   text-align: center;
   white-space: nowrap;
 }
@@ -458,7 +458,19 @@
 .print-challan .print-table td:nth-child(7),
 .print-challan .print-table th:nth-child(8),
 .print-challan .print-table td:nth-child(8) {
-  width: 11%;
+  width: 8%;
+  text-align: right;
+  white-space: nowrap;
+}
+.print-challan .print-table th:nth-child(9),
+.print-challan .print-table td:nth-child(9) {
+  width: 7%;
+  text-align: right;
+  white-space: nowrap;
+}
+.print-challan .print-table th:nth-child(10),
+.print-challan .print-table td:nth-child(10) {
+  width: 10%;
   text-align: right;
   white-space: nowrap;
 }

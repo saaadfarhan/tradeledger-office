@@ -180,6 +180,7 @@ export function FormSelect({
   const [open, setOpen] = React.useState(false);
   const selectableOptions = options.filter((option) => option.value !== "");
   const hasChoices = selectableOptions.length > 0;
+  const shouldSearch = searchable || selectableOptions.length >= 8;
   const isDisabled = disabled || (disableWhenEmpty && !hasChoices);
   const hasClearOption = clearable && Boolean(value) && !isDisabled;
   let clearValue = "__clear_selection__";
@@ -192,7 +193,7 @@ export function FormSelect({
     (option) => option.value === value,
   );
   const searchLabel = placeholder.replace(/^select /i, "").toLowerCase();
-  const selectControl = searchable ? (
+  const selectControl = shouldSearch ? (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
@@ -211,8 +212,8 @@ export function FormSelect({
         <span
           className={
             selectedOption
-              ? "truncate text-left"
-              : "truncate text-left text-muted-foreground"
+              ? "min-w-0 flex-1 truncate text-left"
+                : "min-w-0 flex-1 truncate text-left text-muted-foreground"
           }
         >
           {selectedOption?.label ?? (hasChoices ? placeholder : (emptyLabel ?? "No options available"))}
@@ -314,7 +315,7 @@ export function FormSelect({
             size="icon-xs"
             aria-label={`Clear ${placeholder.toLowerCase()}`}
             title="Clear selection"
-            className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground"
+            className={`absolute top-1/2 ${shouldSearch ? "right-9" : "right-2"} -translate-y-1/2 text-muted-foreground`}
             onPointerDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -449,7 +450,8 @@ export function PersistentSelectField({
       setSaving(false);
     }
   }
-  const selectControl = searchable ? (
+  const shouldSearch = searchable || options.length >= 8;
+  const selectControl = shouldSearch ? (
     <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
       <PopoverTrigger
         render={

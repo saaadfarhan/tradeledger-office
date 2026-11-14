@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Printer, Trash2 } from "lucide-react";
+import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +45,6 @@ import type {
   CompanyProfile,
   Item,
   ItemAttributes,
-  StockMovement,
 } from "@/types";
 import {
   PrintDocument,
@@ -72,7 +71,6 @@ export function ChallanPage({
   type,
   rows,
   items,
-  movements,
   accounts,
   locations,
   company,
@@ -84,7 +82,6 @@ export function ChallanPage({
   type: "PURCHASE" | "SALE";
   rows: Challan[];
   items: Item[];
-  movements: StockMovement[];
   accounts: Account[];
   locations: string[];
   company: CompanyProfile | null;
@@ -116,9 +113,8 @@ export function ChallanPage({
     labelOnly: boolean;
     quantity: number | "";
     rate: number;
-    purchaseRate: number | "";
-    additionalRatePercent: string;
-    saleRate: number | "";
+    discountPercent: string;
+    discountAmount: number | "";
     brand: string;
     category: string;
   };
@@ -128,9 +124,8 @@ export function ChallanPage({
     labelOnly: false,
     quantity: 1,
     rate: 0,
-    purchaseRate: 0,
-    additionalRatePercent: "",
-    saleRate: 0,
+    discountPercent: "0",
+    discountAmount: "",
     brand: "",
     category: "",
   });
@@ -229,6 +224,13 @@ export function ChallanPage({
   const printRows =
     printChallan?.lines.map((line, index) => {
       const item = items.find((candidate) => candidate.code === line.itemCode);
+      const discountPercent =
+        line.discountPercent > 0
+          ? line.discountPercent
+          : Math.max(0, -line.additionalRatePercent);
+      const discountAmount =
+        line.discountAmount ||
+        Math.round((line.rate * line.quantity * discountPercent) / 100);
       return [
         String(index + 1),
         line.itemCode || "—",
@@ -236,21 +238,21 @@ export function ChallanPage({
         line.brand || item?.brand || "—",
         line.category || item?.category || "—",
         `${line.quantity}${item?.unit ? ` ${item.unit}` : ""}`,
-        money(type === "PURCHASE" ? line.purchaseRate : line.saleRate),
+        Math.round(line.rate).toLocaleString(),
+        discountAmount.toLocaleString(),
+        `${discountPercent}%`,
         money(line.amount),
       ];
     }) ?? [];
-  const lineRate = (line: DraftLine) => line.rate;
-  const ratePercentage = (baseRate: number, activeRate: number | "") => {
-    if (activeRate === "") return "";
-    if (baseRate <= 0) return "0";
-    return String((activeRate * 100) / baseRate - 100);
-  };
+  const lineRate = (line: DraftLine) => Math.round(line.rate);
+  const lineDiscount = (line: DraftLine) =>
+    Math.round(Number(line.discountAmount) || 0);
   const setLine = (index: number, updates: Partial<DraftLine>) =>
     setLines((current) =>
       current.map((line, lineIndex) => {
         if (lineIndex !== index) return line;
         const next = { ...line, ...updates };
+        const baseAmount = lineRate(next) * (Number(next.quantity) || 0);
         if (Object.hasOwn(updates, "itemCode")) {
           const selectedItem = items.find(
             (item) => item.code === next.itemCode,
@@ -258,103 +260,87 @@ export function ChallanPage({
           next.brand = selectedItem?.brand ?? "";
           next.category = selectedItem?.category ?? "";
           next.rate = selectedItem
-            ? type === "PURCHASE"
-              ? selectedItem.purchaseRate
-              : selectedItem.saleRate
+            ? Math.round(
+                type === "PURCHASE"
+                  ? selectedItem.purchaseRate
+                    : (selectedItem.saleRate ?? selectedItem.itemRate ?? 0),
+              )
             : 0;
-          next.purchaseRate = selectedItem?.purchaseRate ?? 0;
-          next.saleRate = selectedItem?.saleRate ?? 0;
-          const activeRate =
-            type === "PURCHASE" ? next.purchaseRate : next.saleRate;
-          next.additionalRatePercent = ratePercentage(next.rate, activeRate);
-        }
-        if (Object.hasOwn(updates, "rate")) {
-          const additionalRatePercent = Number(next.additionalRatePercent) || 0;
-          const activeRate = (next.rate * (100 + additionalRatePercent)) / 100;
-          if (type === "PURCHASE") next.purchaseRate = activeRate;
-          else next.saleRate = activeRate;
-        }
-        if (
-          Object.hasOwn(updates, "purchaseRate") &&
-          type === "PURCHASE" &&
-          (typeof next.purchaseRate === "number" || next.purchaseRate === "")
-        )
-          next.additionalRatePercent = ratePercentage(
-            next.rate,
-            next.purchaseRate,
-          );
-        if (
-          Object.hasOwn(updates, "saleRate") &&
-          type === "SALE" &&
-          (typeof next.saleRate === "number" || next.saleRate === "")
-        )
-          next.additionalRatePercent = ratePercentage(
-            next.rate,
-            next.saleRate,
-          );
-        if (Object.hasOwn(updates, "additionalRatePercent")) {
-          const currentRate =
-            type === "PURCHASE" ? next.purchaseRate : next.saleRate;
-          const isDiscount =
-            typeof currentRate === "number" &&
-            next.rate > 0 &&
-            currentRate < next.rate;
-          const magnitude = Math.abs(
-            Number(next.additionalRatePercent) || 0,
-          );
-          const signedPercent =
-            next.additionalRatePercent === ""
-              ? ""
-              : magnitude === 0
-                ? "0"
-                : String(isDiscount ? -magnitude : magnitude);
-          next.additionalRatePercent = signedPercent;
-          const activeRate =
-            (next.rate * (100 + (Number(signedPercent) || 0))) / 100;
-          if (type === "PURCHASE") next.purchaseRate = activeRate;
-          else next.saleRate = activeRate;
+          next.discountPercent = "0";
+          next.discountAmount = "";
+        } else if (Object.hasOwn(updates, "discountAmount")) {
+          if (next.discountAmount === "") {
+            next.discountPercent = "0";
+          } else {
+            next.discountAmount = Math.round(Number(next.discountAmount) || 0);
+            next.discountPercent =
+              baseAmount > 0
+                ? String((next.discountAmount / baseAmount) * 100)
+                : "0";
+          }
+        } else {
+          if (Object.hasOwn(updates, "discountPercent")) {
+            const percent = Number(next.discountPercent) || 0;
+            next.discountAmount = Math.round((baseAmount * percent) / 100);
+          } else if (
+            (Object.hasOwn(updates, "quantity") ||
+              Object.hasOwn(updates, "rate")) &&
+            (next.discountAmount !== "" ||
+              Number(next.discountPercent) > 0)
+          ) {
+            next.discountAmount = Math.round(
+              (baseAmount * (Number(next.discountPercent) || 0)) / 100,
+            );
+          }
         }
         return next;
       }),
     );
   const lineAmount = (line: DraftLine) => {
     const quantity = Number(line.quantity) || 0;
-    const rate =
-      Number(type === "PURCHASE" ? line.purchaseRate : line.saleRate) || 0;
-    return Math.max(0, quantity * rate);
+    return Math.max(0, quantity * lineRate(line) - lineDiscount(line));
   };
   const hasInvalidLineValues = (line: DraftLine) => {
-    const tradingRate = type === "PURCHASE" ? line.purchaseRate : line.saleRate;
+    const discountPercent = Number(line.discountPercent);
     return (
       line.quantity === "" ||
       !Number.isFinite(line.quantity) ||
       line.quantity <= 0 ||
-      tradingRate === "" ||
-      !Number.isFinite(tradingRate) ||
-      tradingRate < 0 ||
+      !Number.isFinite(discountPercent) ||
+      discountPercent < 0 ||
+      discountPercent > 100 ||
+      line.discountAmount === "" ||
+      !Number.isFinite(line.discountAmount) ||
+      line.discountAmount < 0 ||
+      line.discountAmount >
+        Math.round(lineRate(line) * (Number(line.quantity) || 0)) ||
       (line.labelOnly && (!Number.isFinite(line.rate) || line.rate < 0))
     );
   };
   const total = lines.reduce((sum, line) => sum + lineAmount(line), 0);
-  const stockBeforeDraftLine = (itemCode: string, index: number) => {
-    let stock = movements
-      .filter(
-        (movement) =>
-          movement.itemCode === itemCode && movement.location === location,
-      )
-      .reduce((sum, movement) => sum + movement.quantity, 0);
-    if (baseline?.location === location) {
+  const itemQuantityAfterDraftLine = (
+    itemCode: string,
+    index: number,
+    lineQuantity: number,
+  ) => {
+    let quantity =
+      items.find((item) => item.code === itemCode)?.stockQuantity ?? 0;
+    if (baseline) {
       const originalQuantity = baseline.lines
         .filter((line) => line.itemCode === itemCode)
         .reduce((sum, line) => sum + line.quantity, 0);
-      stock += type === "SALE" ? originalQuantity : -originalQuantity;
+      quantity += type === "SALE" ? originalQuantity : -originalQuantity;
     }
     const earlierDraftQuantity = lines
       .slice(0, index)
       .filter((line) => line.itemCode === itemCode)
       .reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+    const currentQuantity = Number(lineQuantity) || 0;
     return (
-      stock + (type === "SALE" ? -earlierDraftQuantity : earlierDraftQuantity)
+      quantity +
+      (type === "SALE"
+        ? -(earlierDraftQuantity + currentQuantity)
+        : earlierDraftQuantity + currentQuantity)
     );
   };
   const addLine = (focus = false) => {
@@ -387,24 +373,19 @@ export function ChallanPage({
         itemLabel: line.itemLabel ?? "",
         labelOnly: !line.itemCode,
         quantity: line.quantity,
-        rate: line.rate,
-        purchaseRate:
-          line.purchaseRate ??
-          items.find((item) => item.code === line.itemCode)?.purchaseRate ??
-          line.rate,
-        additionalRatePercent: String(
-          line.additionalRatePercent ??
-            (line.rate > 0
-              ? ((type === "PURCHASE" ? line.purchaseRate : line.saleRate) *
-                  100) /
-                  line.rate -
-                100
-              : 0),
+        rate: Math.round(line.rate),
+        discountPercent: String(line.discountPercent > 0
+          ? line.discountPercent
+          : Math.max(0, -(line.additionalRatePercent ?? 0))),
+        discountAmount: Math.round(
+          line.discountAmount ||
+            (line.rate *
+              line.quantity *
+              (line.discountPercent > 0
+                ? line.discountPercent
+                : Math.max(0, -(line.additionalRatePercent ?? 0)))) /
+              100,
         ),
-        saleRate:
-          line.saleRate ??
-          items.find((item) => item.code === line.itemCode)?.saleRate ??
-          line.rate,
         brand:
           line.brand ??
           items.find((item) => item.code === line.itemCode)?.brand ??
@@ -423,36 +404,41 @@ export function ChallanPage({
       return;
     }
     if (lines.some(hasInvalidLineValues)) {
-      toast.error("Enter a valid quantity and rate for every line");
+      toast.error(
+        "Enter a valid quantity, discount amount, and discount percent (0–100) for every line",
+      );
       return;
     }
     setPosting(true);
     try {
       const submittedLines = lines.map(
-        (line): ChallanInputLine =>
-          line.labelOnly
-            ? {
-                itemLabel: line.itemLabel.trim(),
-                quantity: Number(line.quantity),
-                rate: line.rate,
-                purchaseRate: Number(line.purchaseRate),
-                additionalRatePercent: Number(line.additionalRatePercent) || 0,
-                saleRate: Number(line.saleRate) || 0,
-                amount: lineAmount(line),
-                brand: line.brand,
-                category: line.category,
-              }
-            : {
-                itemCode: line.itemCode,
-                quantity: Number(line.quantity),
-                rate: lineRate(line),
-                purchaseRate: Number(line.purchaseRate),
-                additionalRatePercent: Number(line.additionalRatePercent) || 0,
-                saleRate: Number(line.saleRate) || 0,
-                amount: lineAmount(line),
-                brand: line.brand,
-                category: line.category,
-              },
+        (line): ChallanInputLine => {
+          const rate = lineRate(line);
+          const quantity = Number(line.quantity);
+          const discountPercent = Number(line.discountPercent) || 0;
+          const discountAmount = lineDiscount(line);
+          const discountedRate =
+            quantity > 0 ? rate - discountAmount / quantity : rate;
+          const item = items.find((candidate) => candidate.code === line.itemCode);
+          const common = {
+            quantity,
+            rate,
+            purchaseRate:
+              type === "PURCHASE" ? discountedRate : (item?.purchaseRate ?? rate),
+            additionalRatePercent:
+              rate > 0 ? (discountedRate * 100) / rate - 100 : 0,
+            saleRate:
+              type === "SALE" ? discountedRate : (item?.saleRate ?? rate),
+            amount: lineAmount(line),
+            discountPercent,
+            discountAmount,
+            brand: line.brand,
+            category: line.category,
+          };
+          return line.labelOnly
+            ? { itemLabel: line.itemLabel.trim(), ...common }
+            : { itemCode: line.itemCode, ...common };
+        },
       );
       const value = {
         number,
@@ -536,13 +522,19 @@ export function ChallanPage({
                 <Input id="challan-number" value={number} disabled />
               </Field>
               <Field label="Date" id="challan-date" required>
-                <DatePicker id="challan-date" value={date} onChange={setDate} />
+                <DatePicker
+                  id="challan-date"
+                  value={date}
+                  onChange={setDate}
+                  required
+                />
               </Field>
               <Field label="Party account" id="challan-party" required>
                 <FormSelect
                   id="challan-party"
                   value={party}
                   onChange={setParty}
+                  searchable
                   placeholder="Select a party"
                   emptyHint="Add the party account in Chart of Accounts, then return here."
                   options={accountChoices.map((account) => ({
@@ -556,6 +548,7 @@ export function ChallanPage({
                   id="challan-location"
                   value={location}
                   onChange={setLocation}
+                  searchable
                   placeholder="Select a location"
                   emptyHint="Add a location on the Locations page, then return here."
                   options={locations.map((place) => ({
@@ -596,10 +589,7 @@ export function ChallanPage({
                   (candidate) => candidate.code === line.itemCode,
                 );
                 return (
-                  <div
-                    key={index}
-                    className="rounded-xl border bg-card p-4"
-                  >
+                  <div key={index} className="rounded-xl border bg-card p-4">
                     <div className="mb-4 flex items-center justify-between">
                       <p className="text-sm font-medium">
                         Line {String(index + 1).padStart(2, "0")}
@@ -624,8 +614,8 @@ export function ChallanPage({
                       <FieldGroup
                         className={
                           line.labelOnly
-                            ? "grid min-w-196 grid-cols-[minmax(10rem,1fr)_5rem_6rem_6rem_4rem_6.5rem] gap-3 [&_[data-slot=field-label]]:whitespace-nowrap"
-                            : "grid min-w-264 grid-cols-[minmax(10rem,1fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_6rem_6rem_4rem_6.5rem] gap-3 [&_[data-slot=field-label]]:whitespace-nowrap"
+                            ? "grid min-w-196 grid-cols-[minmax(10rem,1fr)_5rem_6rem_6rem_4rem_6.5rem] gap-3 **:data-[slot=field-label]:whitespace-nowrap"
+                            : "grid min-w-264 grid-cols-[minmax(10rem,1fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_6rem_6rem_4rem_6.5rem] gap-3 **:data-[slot=field-label]:whitespace-nowrap"
                         }
                       >
                         <div className="flex flex-col gap-2">
@@ -712,11 +702,15 @@ export function ChallanPage({
                               });
                             }}
                           />
-                          {line.itemCode && location && (
+                          {line.itemCode && (
                             <p className="text-xs text-muted-foreground">
-                              {type === "SALE"
-                                ? `Remaining after this line: ${stockBeforeDraftLine(line.itemCode, index) - (Number(line.quantity) || 0)} ${selectedItem?.unit ?? "units"}`
-                                : `New quantity: ${stockBeforeDraftLine(line.itemCode, index) + (Number(line.quantity) || 0)} ${selectedItem?.unit ?? "units"}`}
+                              Item quantity after this line:{" "}
+                              {itemQuantityAfterDraftLine(
+                                line.itemCode,
+                                index,
+                                Number(line.quantity) || 0,
+                              )}{" "}
+                              {selectedItem?.unit ?? "units"}
                             </p>
                           )}
                         </Field>
@@ -726,7 +720,7 @@ export function ChallanPage({
                               id={`challan-rate-${index}`}
                               type="number"
                               min="0"
-                              step="any"
+                              step="1"
                               required
                               value={line.rate}
                               onChange={(event) =>
@@ -734,79 +728,64 @@ export function ChallanPage({
                                   rate: Number(event.target.value),
                                 })
                               }
+                              onBlur={() =>
+                                setLine(index, {
+                                  rate: Math.round(line.rate),
+                                })
+                              }
                             />
                           </Field>
                         ) : (
                           <UiField>
-                            <FieldLabel>Rate</FieldLabel>
+                            <FieldLabel>Rate list</FieldLabel>
                             <div className="flex h-9 items-center rounded-lg border bg-muted/40 px-3 font-medium tabular-nums">
-                              {money(rate)}
+                              {rate.toLocaleString()}
                             </div>
                           </UiField>
                         )}
                         <Field
-                          label={
-                            type === "PURCHASE" ? "Purchase Rate" : "Sale Rate"
-                          }
-                          id={`challan-trading-rate-${index}`}
+                          label="Discount"
+                          id={`challan-discount-${index}`}
+                          required
                         >
                           <Input
-                            id={`challan-trading-rate-${index}`}
+                            id={`challan-discount-${index}`}
                             type="number"
                             min="0"
-                            step="any"
+                            max={Math.round(rate * (Number(line.quantity) || 0))}
+                            step="1"
                             required
                             value={
-                              type === "PURCHASE"
-                                ? line.purchaseRate
-                                : line.saleRate
+                              line.discountAmount === ""
+                                ? ""
+                                : String(line.discountAmount)
                             }
                             onChange={(event) =>
-                              setLine(
-                                index,
-                                type === "PURCHASE"
-                                  ? {
-                                      purchaseRate:
-                                        event.target.value === ""
-                                          ? ""
-                                          : Number(event.target.value),
-                                    }
-                                  : {
-                                      saleRate:
-                                        event.target.value === ""
-                                          ? ""
-                                          : Number(event.target.value),
-                                    },
-                              )
+                              setLine(index, {
+                                discountAmount:
+                                  event.target.value === ""
+                                    ? ""
+                                    : Number(event.target.value),
+                              })
                             }
                           />
                         </Field>
                         <Field
-                          label="Percent"
-                          id={`challan-trading-rate-percent-${index}`}
+                          label="Disc. %"
+                          id={`challan-discount-percent-${index}`}
                         >
                           <InputGroup className="h-9">
                             <InputGroupInput
-                              id={`challan-trading-rate-percent-${index}`}
+                              id={`challan-discount-percent-${index}`}
                               type="number"
                               min="0"
-                              max={
-                                Number(line.additionalRatePercent) < 0
-                                  ? 100
-                                  : undefined
-                              }
+                              max="100"
                               step="any"
                               required
-                              value={
-                                line.additionalRatePercent === ""
-                                  ? ""
-                                  : Math.abs(
-                                      Number(line.additionalRatePercent),
-                                    )
-                              }
+                              value={line.discountPercent}
                               onChange={(event) =>
                                 setLine(index, {
-                                  additionalRatePercent: event.target.value,
+                                  discountPercent: event.target.value,
                                 })
                               }
                               onKeyDown={(event) => {
@@ -845,7 +824,7 @@ export function ChallanPage({
             <Button
               type="button"
               variant="outline"
-              title="Add line (Enter on Percent)"
+              title="Add line (Enter on Disc. %)"
               onClick={() => addLine(true)}
             >
               <Plus data-icon="inline-start" />
@@ -897,7 +876,7 @@ export function ChallanPage({
                   <TableHead className="w-[21%]">Party</TableHead>
                   <TableHead className="w-[16%]">Location</TableHead>
                   <TableHead className="w-[15%] text-right">Total</TableHead>
-                  <TableHead className="w-[20%]">Actions</TableHead>
+                  <TableHead className="w-[20%] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -919,31 +898,36 @@ export function ChallanPage({
                       {money(row.total)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-end gap-1">
                         <Button
-                          variant="outline"
-                          size="sm"
+                          variant="ghost"
+                          size="icon-sm"
+                          title={`Print challan ${row.number}`}
+                          aria-label={`Print challan ${row.number}`}
                           onClick={() => {
                             setPrintChallan(row);
                             setPrintPreviewOpen(true);
                           }}
                         >
                           <PrinterIcon />
-                          Print
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="icon-sm"
+                          title={`Edit challan ${row.number}`}
+                          aria-label={`Edit challan ${row.number}`}
                           onClick={() => beginEdit(row)}
                         >
-                          Edit
+                          <Pencil />
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="icon-sm"
+                          title={`Delete challan ${row.number}`}
+                          aria-label={`Delete challan ${row.number}`}
                           onClick={() => setDeleteNumber(row.number)}
                         >
-                          Delete
+                          <Trash2 />
                         </Button>
                       </div>
                     </TableCell>
@@ -978,7 +962,9 @@ export function ChallanPage({
               "Brand",
               "Category",
               "Qty / unit",
-              "Rate",
+              "Rate list",
+              "Discount",
+              "Disc. %",
               "Amount",
             ]}
             rows={printRows}
@@ -1006,7 +992,9 @@ export function ChallanPage({
               "Brand",
               "Category",
               "Qty / unit",
-              "Rate",
+              "Rate list",
+              "Discount",
+              "Disc. %",
               "Amount",
             ]}
             rows={printRows}

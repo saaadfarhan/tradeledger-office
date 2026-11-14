@@ -50,14 +50,6 @@ export function DashboardPage({
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const localHour = now.getHours();
-  const greeting = localHour >= 5 && localHour < 12
-    ? "Good morning"
-    : localHour >= 12 && localHour < 17
-      ? "Good afternoon"
-      : localHour >= 17 && localHour < 22
-        ? "Good evening"
-        : "Welcome back";
   const localDate = new Intl.DateTimeFormat(undefined, {
     weekday: "long",
     year: "numeric",
@@ -102,13 +94,13 @@ export function DashboardPage({
   const hasWeekActivity = chartMax > 0;
   return (
     <section className="flex flex-col gap-5">
-      <header className="flex flex-col justify-between gap-4 border-b border-border/70 pb-4 sm:flex-row sm:items-center">
+      <header className="flex flex-col justify-between gap-4 border-b border-border/70 pb-4 sm:flex-row sm:items-start">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground">{localDate} · {localTime}</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{greeting}, {username}</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">Hello, {username}</h1>
             <p className="mt-1 text-sm text-muted-foreground">Your office activity at a glance.</p>
           </div>
-          <div className="min-w-0 max-w-full">
+          <div className="w-full min-w-0 sm:w-[min(30rem,48%)]">
             <CompanyBusinessCard company={company} logo={logo} />
           </div>
       </header>
@@ -328,21 +320,32 @@ export function CompanyBusinessCard({
   if (variant === "hero") {
     return (
       <div
-        className="flex min-w-0 items-center gap-2"
+        className="flex min-w-0 items-start gap-2"
         aria-label="Company information"
       >
-        <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground">
           {logo ? (
             <img src={logo} alt="" className="size-full object-contain p-1" />
           ) : (
             <Building2 className="size-4" />
           )}
         </span>
-        <div className="min-w-0">
-          <p className="max-w-64 truncate text-sm font-medium">{name}</p>
-          <p className="max-w-96 truncate text-xs text-muted-foreground">
-            {details.length ? details.map(([label, value]) => `${label}: ${value}`).join(" · ") : "Company details not set"}
-          </p>
+        <div className="grid min-w-0 gap-1">
+          <p className="break-words text-sm font-medium">{name}</p>
+          {details.length ? (
+            <dl className="grid min-w-0 gap-1 text-xs text-muted-foreground">
+              {details.map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="mr-1 inline font-medium">{label}:</dt>
+                  <dd className="inline break-words">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Company details not set
+            </p>
+          )}
         </div>
       </div>
     );

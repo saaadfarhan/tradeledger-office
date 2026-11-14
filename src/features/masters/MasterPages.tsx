@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   CornerDownRight,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -62,17 +63,23 @@ export function MasterPage({
 }) {
   return (
     <section className="space-y-5">
-      <PageHeader title={title} description={description} actions={<div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            data-operator-search
-            title="Focus search (Ctrl+F)"
-            className="pl-9"
-            placeholder="Search records"
-            value={search}
-            onChange={(event) => onSearch(event.target.value)}
-          />
-        </div>} />
+      <PageHeader
+        title={title}
+        description={description}
+        actions={
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              data-operator-search
+              title="Focus search (Ctrl+F)"
+              className="pl-9"
+              placeholder="Search records"
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+            />
+          </div>
+        }
+      />
       {children}
     </section>
   );
@@ -392,16 +399,16 @@ export function ItemsTable({
         row.brand || "—",
         row.category || "—",
         String(row.stockQuantity ?? 0),
-        money(row.itemRate),
-        money(row.purchaseRate),
-        money(row.saleRate),
+        row.itemRate ? money(row.itemRate) : "—",
+        row.purchaseRate ? money(row.purchaseRate) : "—",
+        row.saleRate ? money(row.saleRate) : "—",
       ])}
       records={rows.map((row) => ({
         ...row,
         stockQuantity: String(row.stockQuantity ?? 0),
-        saleRate: String(row.saleRate),
-        itemRate: String(row.itemRate),
-        purchaseRate: String(row.purchaseRate),
+        saleRate: String(row.saleRate) || "—",
+        itemRate: String(row.itemRate) || "—",
+        purchaseRate: String(row.purchaseRate) || "—",
       }))}
       baselineRecords={rows}
       fields={[
@@ -418,6 +425,7 @@ export function ItemsTable({
           type: "persisted-select",
           optionKind: "brand",
           options: attributes.brands,
+          searchable: true,
           required: true,
         },
         {
@@ -426,6 +434,7 @@ export function ItemsTable({
           type: "persisted-select",
           optionKind: "category",
           options: attributes.categories,
+          searchable: true,
           required: true,
         },
         {
@@ -440,9 +449,14 @@ export function ItemsTable({
           label: "Item rate",
           section: "Rate list",
           type: "number",
-          required: true,
+          required: false,
         },
-        { key: "saleRate", label: "Sale rate", type: "number", required: true },
+        {
+          key: "saleRate",
+          label: "Sale rate",
+          type: "number",
+          required: false,
+        },
         {
           key: "quantityToAdd",
           label: "Quantity to add",
@@ -576,6 +590,7 @@ type EditorField = {
   section?: string;
   type?: "text" | "number" | "select" | "location" | "persisted-select";
   optionKind?: "brand" | "category";
+  searchable?: boolean;
   auto?: boolean;
   required?: boolean;
   emptyHint?: string;
@@ -594,8 +609,20 @@ type TreeRowControl = {
   onToggle: () => void;
 };
 
-function nextAccountCode(parentCode: string, records: Array<Record<string, string>>) {
-  const segmentLength = parentCode.length === 0 ? 1 : parentCode.length === 1 ? 1 : parentCode.length === 2 ? 2 : parentCode.length === 4 ? 4 : 2;
+function nextAccountCode(
+  parentCode: string,
+  records: Array<Record<string, string>>,
+) {
+  const segmentLength =
+    parentCode.length === 0
+      ? 1
+      : parentCode.length === 1
+        ? 1
+        : parentCode.length === 2
+          ? 2
+          : parentCode.length === 4
+            ? 4
+            : 2;
   const nextLength = parentCode.length + segmentLength;
   const siblings = records
     .filter((record) => (record.parentCode || "") === parentCode)
@@ -652,20 +679,26 @@ export function MasterTable({
     Record<string, unknown> | undefined
   >();
   const [saving, setSaving] = useState(false);
-  const [lastSelections, setLastSelections] = useState<Record<string, string>>({});
+  const [lastSelections, setLastSelections] = useState<Record<string, string>>(
+    {},
+  );
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
   const startCreate = async () => {
     try {
       setEditIndex(null);
       setBaseline(undefined);
       const initial = Object.fromEntries(
-        fields.map((field) => [field.key, lastSelections[field.key] ?? field.defaultValue ?? ""]),
+        fields.map((field) => [
+          field.key,
+          lastSelections[field.key] ?? field.defaultValue ?? "",
+        ]),
       );
       const idField = fields.find((field) => field.auto);
       if (idField) {
-        initial[idField.key] = idKind === "account"
-          ? nextAccountCode("", accountCodeRecords)
-          : await window.office.ids.next(idKind);
+        initial[idField.key] =
+          idKind === "account"
+            ? nextAccountCode("", accountCodeRecords)
+            : await window.office.ids.next(idKind);
       }
       setValues(initial);
       setOpen(true);
@@ -694,7 +727,15 @@ export function MasterTable({
     try {
       await onSave(values, baseline);
       if (editIndex === null) {
-        const reusable = Object.fromEntries(fields.filter((field) => ["select", "persisted-select", "location"].includes(field.type ?? "")).map((field) => [field.key, values[field.key] ?? ""]));
+        const reusable = Object.fromEntries(
+          fields
+            .filter((field) =>
+              ["select", "persisted-select", "location"].includes(
+                field.type ?? "",
+              ),
+            )
+            .map((field) => [field.key, values[field.key] ?? ""]),
+        );
         setLastSelections((current) => ({ ...current, ...reusable }));
       }
       toast.success(
@@ -719,7 +760,11 @@ export function MasterTable({
               {rows.length} record{rows.length === 1 ? "" : "s"}
             </CardDescription>
           </div>
-          <Button data-operator-new title={`${createLabel} (Ctrl+N)`} onClick={() => void startCreate()}>
+          <Button
+            data-operator-new
+            title={`${createLabel} (Ctrl+N)`}
+            onClick={() => void startCreate()}
+          >
             <Plus data-icon="inline-start" />
             {createLabel}
           </Button>
@@ -799,14 +844,17 @@ export function MasterTable({
                         )}
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="icon-sm"
+                          title={`Edit ${row[0]}`}
+                          aria-label={`Edit ${row[0]}`}
                           onClick={() => startEdit(index)}
                         >
-                          Edit
+                          <Pencil />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon-sm"
+                          title={`Delete ${row[0]}`}
                           aria-label={`Delete ${row[0]}`}
                           onClick={() => setDeleteIndex(index)}
                         >
@@ -861,6 +909,7 @@ export function MasterTable({
                       }))
                     }
                     options={(field.options as string[]) ?? []}
+                    searchable={field.searchable}
                     onAdd={async (value) => {
                       if (!field.optionKind || !onCreateOption) return;
                       await onCreateOption(field.optionKind, value);
@@ -888,18 +937,32 @@ export function MasterTable({
                         id={`editor-${field.key}`}
                         value={values[field.key] ?? ""}
                         onChange={(value) => {
-                          if (idKind === "account" && field.key === "parentCode" && editIndex === null) {
+                          if (
+                            idKind === "account" &&
+                            field.key === "parentCode" &&
+                            editIndex === null
+                          ) {
                             try {
                               setValues((current) => ({
                                 ...current,
                                 parentCode: value,
-                                code: nextAccountCode(value, accountCodeRecords),
+                                code: nextAccountCode(
+                                  value,
+                                  accountCodeRecords,
+                                ),
                               }));
                             } catch (error) {
-                              toast.error(error instanceof Error ? error.message : "Could not generate account code");
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Could not generate account code",
+                              );
                             }
                           } else {
-                            setValues((current) => ({ ...current, [field.key]: value }));
+                            setValues((current) => ({
+                              ...current,
+                              [field.key]: value,
+                            }));
                           }
                         }}
                         options={
@@ -972,7 +1035,12 @@ export function MasterTable({
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button data-operator-save title="Save changes (Ctrl+S)" onClick={() => void submit()} disabled={saving}>
+            <Button
+              data-operator-save
+              title="Save changes (Ctrl+S)"
+              onClick={() => void submit()}
+              disabled={saving}
+            >
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </DialogFooter>

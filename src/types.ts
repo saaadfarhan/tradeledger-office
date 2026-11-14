@@ -24,11 +24,11 @@ export type Item = {
   code: string;
   description: string;
   unit: string;
-  saleRate: number;
+  saleRate?: number;
   purchaseRate: number;
   brand: string;
   category: string;
-  itemRate: number;
+  itemRate?: number;
   stockQuantity: number;
 };
 export type ItemAttributes = { brands: string[]; categories: string[] };
@@ -456,6 +456,10 @@ export type OfficeBridge = {
       itemCode: string;
       location: string;
       quantity: number;
+      date: string;
+      rate: number;
+      brand: string;
+      category: string;
     }) => Promise<{
       itemCode: string;
       location: string;
@@ -463,6 +467,17 @@ export type OfficeBridge = {
       rate: number;
       amount: number;
     }>;
+    updateOpening: (value: {
+      id: number;
+      itemCode: string;
+      location: string;
+      quantity: number;
+      date: string;
+      rate: number;
+      brand: string;
+      category: string;
+    }) => Promise<void>;
+    removeOpening: (id: number) => Promise<void>;
     transfer: (value: {
       itemCode: string;
       fromLocation: string;
@@ -478,7 +493,7 @@ export type OfficeBridge = {
     }>;
   };
   locations: {
-    save: (name: string) => Promise<string>;
+    save: (name: string | { name: string; originalName?: string }) => Promise<string>;
     remove: (name: string) => Promise<void>;
   };
 };

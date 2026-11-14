@@ -149,6 +149,37 @@ test('challan additional rate percent is measured above the base rate', (t) => {
   purchase = store.listChallans().find((challan) => challan.number === 'P-1')
   assert.equal(purchase.lines[0].purchaseRate, 90)
   assert.equal(purchase.lines[0].additionalRatePercent, -10)
+  assert.equal(purchase.lines[0].discountPercent, 10)
+  assert.equal(purchase.lines[0].discountAmount, 10)
+
+  const discountedPurchase = store.postChallan({
+    number: 'P-2',
+    type: 'PURCHASE',
+    date: '2026-10-19',
+    party: 'P',
+    location: 'Main',
+    lines: [{
+      itemCode: 'I',
+      quantity: 2,
+      rate: 100,
+      additionalRatePercent: -10,
+      discountPercent: 10,
+      discountAmount: 20,
+    }],
+  })
+  assert.equal(discountedPurchase.total, 180)
+  assert.equal(discountedPurchase.lines[0].purchaseRate, 90)
+  assert.equal(discountedPurchase.lines[0].discountPercent, 10)
+  assert.equal(discountedPurchase.lines[0].discountAmount, 20)
+
+  assert.throws(() => store.postChallan({
+    number: 'BAD-DISCOUNT',
+    type: 'PURCHASE',
+    date: '2026-10-19',
+    party: 'P',
+    location: 'Main',
+    lines: [{ itemCode: 'I', quantity: 1, rate: 100, discountPercent: 101 }],
+  }), /between 0 and 100/)
 
   const sale = store.postChallan({
     number: 'S-1',
@@ -160,6 +191,7 @@ test('challan additional rate percent is measured above the base rate', (t) => {
   })
   assert.equal(sale.lines[0].saleRate, 220)
   assert.equal(sale.lines[0].additionalRatePercent, 10)
+  assert.equal(sale.lines[0].discountPercent, 0)
 })
 
 test('SQLite store refuses purchase deletion that would make remaining stock negative', (t) => {
@@ -239,7 +271,17 @@ test('opening stock and paired location transfers persist with safe validation',
   store.saveLocation('Main')
   store.saveLocation('Shop')
 
-  assert.deepEqual(store.addOpeningBalance({ itemCode: 'I', location: 'Main', quantity: 8 }), { itemCode: 'I', location: 'Main', quantity: 8, rate: 12, amount: 96 })
+  assert.deepEqual(store.addOpeningBalance({
+    itemCode: 'I',
+    location: 'Main',
+    quantity: 8,
+    brand: 'Acme',
+    category: 'Hardware',
+  }), { itemCode: 'I', location: 'Main', quantity: 8, rate: 12, amount: 96 })
+  assert.equal(store.listItems()[0].brand, 'Acme')
+  assert.equal(store.listItems()[0].category, 'Hardware')
+  assert.ok(store.listItemAttributes().brands.includes('Acme'))
+  assert.ok(store.listItemAttributes().categories.includes('Hardware'))
   assert.equal(store.listOpeningBalances().length, 1)
   assert.equal(store.getStock('I', 'Main'), 8)
   assert.throws(() => store.addOpeningBalance({ itemCode: 'I', location: 'Main', quantity: 0 }), /greater than zero/)
@@ -254,6 +296,88 @@ test('opening stock and paired location transfers persist with safe validation',
   assert.equal(transfers.length, 2, 'transfer creates a matching outbound and inbound movement')
   assert.equal(transfers.reduce((sum, movement) => sum + movement.quantity, 0), 0, 'transfer preserves total stock')
 
+})
+
+test('locations can be renamed and opening balances can be edited or deleted safely', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-opening-edit-'))
+  const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))
+  t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+  store.saveItem({ code: 'I', description: 'Inventory item', unit: 'box', purchaseRate: 12, saleRate: 15 })
+  store.saveLocation('Main')
+  store.saveLocation('Shop')
+
+  store.addOpeningBalance({
+    itemCode: 'I',
+    location: 'Main',
+    quantity: 8,
+    date: '2026-11-14',
+    rate: 13,
+    brand: 'Acme',
+    category: 'Hardware',
+  })
+  const opening = store.listOpeningBalances()[0]
+  store.updateOpeningBalance({
+    id: opening.id,
+    itemCode: 'I',
+    location: 'Main',
+    quantity: 8,
+    date: '2026-11-13',
+    rate: 14,
+    brand: 'Northstar',
+    category: 'Tools',
+  })
+  assert.deepEqual(store.listOpeningBalances()[0], {
+    id: opening.id,
+    date: '2026-11-13',
+    document: 'OPENING',
+    itemCode: 'I',
+    itemDescription: 'Inventory item',
+    location: 'Main',
+    quantity: 8,
+    rate: 14,
+    amount: 112,
+  })
+
+  store.transferStock({ itemCode: 'I', fromLocation: 'Main', toLocation: 'Shop', quantity: 6 })
+  assert.doesNotThrow(() => store.updateOpeningBalance({
+    id: opening.id,
+    itemCode: 'I',
+    location: 'Main',
+    quantity: 8,
+    date: '2026-11-13',
+    rate: 14,
+    brand: 'Northstar',
+    category: 'Tools',
+  }))
+  assert.throws(() => store.updateOpeningBalance({
+    id: opening.id,
+    itemCode: 'I',
+    location: 'Main',
+    quantity: 5,
+    date: '2026-11-13',
+    rate: 14,
+    brand: 'Northstar',
+    category: 'Tools',
+  }), /downstream stock activity/)
+  assert.throws(() => store.deleteOpeningBalance(opening.id), /downstream stock activity/)
+
+  assert.equal(store.saveLocation({ name: 'Warehouse', originalName: 'Main' }), 'Warehouse')
+  assert.equal(store.getStock('I', 'Warehouse'), 2)
+  assert.equal(store.listOpeningBalances()[0].location, 'Warehouse')
+  assert.ok(store.listStockMovements().some((movement) => movement.type === 'TRANSFER OUT' && movement.location === 'Warehouse'))
+  assert.throws(() => store.saveLocation({ name: 'Shop', originalName: 'Warehouse' }), /already exists/)
+
+  const removable = store.addOpeningBalance({
+    itemCode: 'I',
+    location: 'Shop',
+    quantity: 1,
+    brand: 'Northstar',
+    category: 'Tools',
+  })
+  const removableId = store.listOpeningBalances()[0].id
+  assert.deepEqual(removable, { itemCode: 'I', location: 'Shop', quantity: 1, rate: 12, amount: 12 })
+  store.deleteOpeningBalance(removableId)
+  assert.equal(store.getStock('I', 'Shop'), 6)
 })
 
 test('SQLite voucher workflows validate balance, update atomically, and retain entry type', (t) => {
