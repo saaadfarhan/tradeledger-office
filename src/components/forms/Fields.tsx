@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronDown, Plus, X } from "lucide-react";
+import { ChevronDown, Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
@@ -38,7 +38,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import type { Item } from "@/types";
-import { ChevronDownIcon } from "lucide-react";
 import { focusNextFormControlAfterSelection } from "@/lib/form-navigation";
 
 export function SearchableItemSelect({
@@ -65,78 +64,103 @@ export function SearchableItemSelect({
   const hasItems = items.length > 0;
   return (
     <div className="grid gap-1.5">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            <Button
-              id={id}
-              type="button"
-              variant="outline"
-              role="combobox"
-              aria-expanded={open}
-              disabled={disabled || !hasItems}
-              className="h-9 w-full justify-between px-3 font-normal"
-            />
-          }
-        >
-          <span
-            className={
-              selected
-                ? "truncate text-left"
-                : "truncate text-left text-muted-foreground"
+      <div className="relative min-w-0">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger
+            render={
+              <Button
+                id={id}
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={open}
+                disabled={disabled || !hasItems}
+                className="h-9 w-full justify-between px-3 font-normal"
+              />
             }
           >
-            {selected
-              ? `${selected.code} — ${selected.description}`
-              : hasItems
-                ? placeholder
-                : "No catalog items available"}
-          </span>
-          <ChevronDownIcon data-icon="inline-end" />
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="w-[min(28rem,calc(100vw-2rem))] p-0"
-        >
-          <Command>
-            <CommandInput placeholder="Search by code, name, brand, or category…" />
-            <CommandList>
-              <CommandEmpty>
-                {emptyHint ?? "No matching catalog items."}
-              </CommandEmpty>
-              <CommandGroup>
-                {clearable && value && (
-                  <CommandItem
-                    value="clear selection"
-                    onSelect={() => {
-                      onChange("");
-                      setOpen(false);
-                      focusNextFormControlAfterSelection(id);
-                    }}
-                  >
-                    Clear selection
-                  </CommandItem>
-                )}
-                {items.map((item) => (
-                  <CommandItem
-                    key={item.code}
-                    value={`${item.code} ${item.description} ${item.brand ?? ""} ${item.category ?? ""}`}
-                    onSelect={() => {
-                      onChange(item.code);
-                      setOpen(false);
-                      focusNextFormControlAfterSelection(id);
-                    }}
-                  >
-                    <span className="truncate">
-                      {item.code} — {item.description}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+            <span
+              className={
+                selected
+                  ? `truncate text-left ${clearable && value ? "mr-8" : ""}`
+                  : "truncate text-left text-muted-foreground"
+              }
+            >
+              {selected
+                ? `${selected.code} — ${selected.description}`
+                : hasItems
+                  ? placeholder
+                  : "No catalog items available"}
+            </span>
+            <ChevronDown data-icon="inline-end" />
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-[min(28rem,calc(100vw-2rem))] p-0"
+          >
+            <Command>
+              <CommandInput placeholder="Search by code, name, brand, or category…" />
+              <CommandList>
+                <CommandEmpty>
+                  {emptyHint ?? "No matching catalog items."}
+                </CommandEmpty>
+                <CommandGroup>
+                  {clearable && value && (
+                    <CommandItem
+                      value="clear selection"
+                      onSelect={() => {
+                        onChange("");
+                        setOpen(false);
+                        focusNextFormControlAfterSelection(id);
+                      }}
+                    >
+                      Clear selection
+                    </CommandItem>
+                  )}
+                  {items.map((item) => (
+                    <CommandItem
+                      key={item.code}
+                      value={`${item.code} ${item.description}`}
+                      data-active={value === item.code ? "true" : "false"}
+                      className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+                      onSelect={() => {
+                        onChange(item.code);
+                        setOpen(false);
+                        focusNextFormControlAfterSelection(id);
+                      }}
+                    >
+                      <span className="truncate">
+                        {item.code} — {item.description}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        {clearable && value && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Clear ${placeholder.toLowerCase()}`}
+            title="Clear selection"
+            className="absolute top-1/2 right-8 -translate-y-1/2 text-muted-foreground"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onChange("");
+            }}
+          >
+            <X />
+          </Button>
+        )}
+      </div>
       {!hasItems && (
         <FieldDescription>
           {emptyHint ?? "Add a catalog item first, then return here."}
@@ -212,11 +236,12 @@ export function FormSelect({
         <span
           className={
             selectedOption
-              ? "min-w-0 flex-1 truncate text-left"
-                : "min-w-0 flex-1 truncate text-left text-muted-foreground"
+              ? `min-w-0 flex-1 truncate text-left ${hasClearOption ? "mr-8" : ""}`
+              : "min-w-0 flex-1 truncate text-left text-muted-foreground"
           }
         >
-          {selectedOption?.label ?? (hasChoices ? placeholder : (emptyLabel ?? "No options available"))}
+          {selectedOption?.label ??
+            (hasChoices ? placeholder : (emptyLabel ?? "No options available"))}
         </span>
         <ChevronDown data-icon="inline-end" />
       </PopoverTrigger>
@@ -247,6 +272,8 @@ export function FormSelect({
                 <CommandItem
                   key={option.value}
                   value={`${option.label} ${option.value}`}
+                  data-active={value === option.value ? "true" : "false"}
+                  className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
                   onSelect={() => {
                     onChange(option.value);
                     setOpen(false);
@@ -254,12 +281,6 @@ export function FormSelect({
                   }}
                 >
                   <span className="truncate">{option.label}</span>
-                  {value === option.value && (
-                    <Check
-                      data-slot="select-item-indicator"
-                      className="ml-auto"
-                    />
-                  )}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -280,9 +301,10 @@ export function FormSelect({
       <SelectTrigger
         id={id}
         aria-label={ariaLabel}
-        className={`${hasClearOption ? "h-9 w-full pr-9" : "h-9 w-full"} ${triggerClassName ?? ""}`}
+        className={`${hasClearOption ? "h-9 w-full pr-3" : "h-9 w-full"} ${triggerClassName ?? ""}`}
       >
         <SelectValue
+          className={hasClearOption ? "mr-8" : undefined}
           placeholder={
             hasChoices ? placeholder : (emptyLabel ?? "No options available")
           }
@@ -315,7 +337,7 @@ export function FormSelect({
             size="icon-xs"
             aria-label={`Clear ${placeholder.toLowerCase()}`}
             title="Clear selection"
-            className={`absolute top-1/2 ${shouldSearch ? "right-9" : "right-2"} -translate-y-1/2 text-muted-foreground`}
+            className="absolute top-1/2 right-8 -translate-y-1/2 text-muted-foreground"
             onPointerDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -465,34 +487,55 @@ export function PersistentSelectField({
           />
         }
       >
-        <span className={value ? "truncate text-left" : "truncate text-left text-muted-foreground"}>
+        <span
+          className={
+            value
+              ? "truncate text-left"
+              : "truncate text-left text-muted-foreground"
+          }
+        >
           {value || `Select ${label?.toLowerCase() || "option"}`}
         </span>
         <ChevronDown data-icon="inline-end" />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-0">
+      <PopoverContent
+        align="start"
+        className="w-[min(24rem,calc(100vw-2rem))] p-0"
+      >
         <Command>
-          <CommandInput placeholder={`Search ${label?.toLowerCase() || "options"}…`} />
+          <CommandInput
+            placeholder={`Search ${label?.toLowerCase() || "options"}…`}
+          />
           <CommandList>
-            <CommandEmpty>{emptyHint ?? `No ${label?.toLowerCase() || "options"} found.`}</CommandEmpty>
+            <CommandEmpty>
+              {emptyHint ?? `No ${label?.toLowerCase() || "options"} found.`}
+            </CommandEmpty>
             <CommandGroup>
               {value && (
-                <CommandItem value="clear selection" onSelect={() => {
-                  onChange("");
-                  setPickerOpen(false);
-                  focusNextFormControlAfterSelection(id);
-                }}>
+                <CommandItem
+                  value="clear selection"
+                  onSelect={() => {
+                    onChange("");
+                    setPickerOpen(false);
+                    focusNextFormControlAfterSelection(id);
+                  }}
+                >
                   Clear selection
                 </CommandItem>
               )}
               {options.map((option) => (
-                <CommandItem key={option} value={option} onSelect={() => {
-                  onChange(option);
-                  setPickerOpen(false);
-                  focusNextFormControlAfterSelection(id);
-                }}>
+                <CommandItem
+                  key={option}
+                  value={option}
+                  data-active={value === option ? "true" : "false"}
+                  className="data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+                  onSelect={() => {
+                    onChange(option);
+                    setPickerOpen(false);
+                    focusNextFormControlAfterSelection(id);
+                  }}
+                >
                   <span className="truncate">{option}</span>
-                  {value === option && <Check data-slot="select-item-indicator" className="ml-auto" />}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -512,15 +555,15 @@ export function PersistentSelectField({
       emptyLabel={emptyLabel}
       showEmptyHint={showEmptyHint}
       disableWhenEmpty={disableWhenEmpty}
-      emptyHint={emptyHint ?? `Add a ${label?.toLowerCase() || "option"} to begin.`}
+      emptyHint={
+        emptyHint ?? `Add a ${label?.toLowerCase() || "option"} to begin.`
+      }
     />
   );
   return (
     <Field label={label!} id={id} required={required} className="min-w-0">
       <div className="flex min-w-0 gap-2">
-        <div className="min-w-0 flex-1">
-          {selectControl}
-        </div>
+        <div className="min-w-0 flex-1">{selectControl}</div>
         {onAdd && (
           <Button
             type="button"

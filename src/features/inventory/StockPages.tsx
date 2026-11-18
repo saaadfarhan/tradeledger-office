@@ -345,13 +345,13 @@ export function OpeningBalancesPage({
     setCategory("");
   }
   function beginEdit(row: OpeningBalance) {
+    const item = items.find((candidate) => candidate.code === row.itemCode);
     setEditingOpeningId(row.id);
     setItemCode(row.itemCode);
     setLocation(row.location);
     setQuantity(String(row.quantity));
     setDate(row.date);
     setRate(String(Math.round(row.rate)));
-    const item = items.find((candidate) => candidate.code === row.itemCode);
     setBrand(item?.brand ?? "");
     setCategory(item?.category ?? "");
     setEditorOpen(true);

@@ -18,6 +18,7 @@ import {
   FileBarChart,
   FileClock,
   Home,
+  Info,
   Keyboard,
   Landmark,
   LayoutDashboard,
@@ -194,20 +195,29 @@ const navigationGroups: Array<{
     pages: [
       "company",
       "users",
-      "audit",
       "database",
+    ],
+  },
+  {
+    title: "Office Tools",
+    icon: Info,
+    pages: [
+      "audit",
       "settings",
       "manual",
       "keybindings",
     ],
   },
 ];
-const reportNavigationIndex = navigationGroups.findIndex((group) => group.title === "Reports");
-const navigationGroupsBeforeReports = navigationGroups.slice(0, reportNavigationIndex);
-const navigationGroupsAfterReports = navigationGroups.slice(reportNavigationIndex + 1);
+const reportNavigationItems = [
+  { name: "Party Ledger", icon: BookOpen },
+  { name: "Stock Report", icon: Package },
+  { name: "Aging Report", icon: FileClock },
+];
 
 const sidebarHeadingClassName =
-  "h-12 rounded-xl border border-transparent px-3 py-3 text-sm font-semibold tracking-normal text-foreground transition-colors hover:bg-muted dark:hover:bg-muted/50 hover:no-underline focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+  "h-12 rounded-xl border border-transparent px-3 py-3 text-sm font-semibold tracking-normal text-foreground transition-colors hover:bg-muted dark:hover:bg-muted/50 hover:no-underline";
+const SIDEBAR_PINNED_KEY = "purchase-sale-sidebar-pinned";
 
 function normalizeSearchText(value: string) {
   return value
@@ -328,7 +338,9 @@ export function App() {
   const [openNavGroup, setOpenNavGroup] = useState("");
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const [sidebarFocused, setSidebarFocused] = useState(false);
-  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(
+    () => window.localStorage.getItem(SIDEBAR_PINNED_KEY) !== "false",
+  );
   const sidebarPointerInteraction = useRef(false);
   const sidebarExpanded = sidebarHovered || sidebarFocused || sidebarPinned;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -361,7 +373,7 @@ export function App() {
   const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [selectedReport, setSelectedReport] = useState("");
+  const [selectedReport, setSelectedReport] = useState("Party Ledger");
   const [locations, setLocations] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -424,6 +436,14 @@ export function App() {
   }, [darkMode]);
 
   useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_PINNED_KEY, String(sidebarPinned));
+  }, [sidebarPinned]);
+
+  useEffect(() => {
+    if (page === "reports") {
+      setOpenNavGroup("Reports");
+      return;
+    }
     const currentGroup = navigationGroups.find((group) =>
       group.title !== "Reports" && group.pages.includes(page),
     );
@@ -1143,7 +1163,7 @@ export function App() {
             </h1>
             <div className="flex shrink-0 items-center gap-0.5">
               <Button
-                variant="ghost"
+                variant={page === "home" ? "secondary" : "ghost"}
                 size="icon-sm"
                 aria-label="Global search"
                 title="Global search (Ctrl+Shift+F)"
@@ -1227,29 +1247,78 @@ export function App() {
                 </SheetHeader>
                 <nav aria-label="Main navigation" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
                   <Button variant={page === "home" ? "secondary" : "ghost"} aria-current={page === "home" ? "page" : undefined} className="mb-2 h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { navigate("home"); setMobileNavOpen(false); }}><LayoutDashboard />Home</Button>
-                  <Accordion value={openNavGroup ? [openNavGroup] : []} onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}>
-                    {navigationGroupsBeforeReports.map((group) => {
+                  <Accordion
+                    value={openNavGroup ? [openNavGroup] : []}
+                    onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}
+                  >
+                    {navigationGroups.map((group) => {
                       const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
                       if (!entries.length) return null;
-                      return <AccordionItem key={group.title} value={group.title} className="border-border">
-                        <AccordionTrigger className={`${sidebarHeadingClassName} flex items-center gap-3`}><group.icon data-icon="inline-start" />{group.title}</AccordionTrigger>
-                        <AccordionContent className="pb-2 pt-1"><div className="flex flex-col gap-1 px-1">
-                          {entries.map(({ id, label, icon: Icon }) => <Button key={id} variant={page === id ? "secondary" : "ghost"} aria-current={page === id ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { setOpenNavGroup(group.title); navigate(id); setMobileNavOpen(false); }}><Icon />{label}</Button>)}
-                        </div></AccordionContent>
-                      </AccordionItem>;
-                    })}
-                  </Accordion>
-                  {permittedNav.some(({ id }) => id === "reports") && <Button variant={page === "reports" ? "secondary" : "ghost"} aria-current={page === "reports" ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { navigate("reports"); setMobileNavOpen(false); }}><FileBarChart />Reports</Button>}
-                  <Accordion value={openNavGroup ? [openNavGroup] : []} onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}>
-                    {navigationGroupsAfterReports.map((group) => {
-                      const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
-                      if (!entries.length) return null;
-                      return <AccordionItem key={group.title} value={group.title} className="border-border">
-                        <AccordionTrigger className={`${sidebarHeadingClassName} flex items-center gap-3`}><group.icon data-icon="inline-start" />{group.title}</AccordionTrigger>
-                        <AccordionContent className="pb-2 pt-1"><div className="flex flex-col gap-1 px-1">
-                          {entries.map(({ id, label, icon: Icon }) => <Button key={id} variant={page === id ? "secondary" : "ghost"} aria-current={page === id ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3" onClick={() => { setOpenNavGroup(group.title); navigate(id); setMobileNavOpen(false); }}><Icon />{label}</Button>)}
-                        </div></AccordionContent>
-                      </AccordionItem>;
+                      const isReports = group.title === "Reports";
+                      return (
+                        <AccordionItem
+                          key={group.title}
+                          value={group.title}
+                          className={
+                            isReports && page === "reports"
+                              ? "border-primary"
+                              : "border-border"
+                          }
+                        >
+                          <AccordionTrigger
+                            className={`${sidebarHeadingClassName} flex items-center gap-3 ${isReports && page === "reports" ? "border-primary bg-secondary text-secondary-foreground" : ""}`}
+                          >
+                            <group.icon data-icon="inline-start" />
+                            {group.title}
+                          </AccordionTrigger>
+                          <AccordionContent className="pb-2 pt-1">
+                            <div className="flex flex-col gap-1 px-1">
+                              {isReports
+                                ? reportNavigationItems.map(({ name, icon: Icon }) => (
+                                    <Button
+                                      key={name}
+                                      variant={
+                                        page === "reports" && selectedReport === name
+                                          ? "secondary"
+                                          : "ghost"
+                                      }
+                                      aria-current={
+                                        page === "reports" && selectedReport === name
+                                          ? "page"
+                                          : undefined
+                                      }
+                                      className="h-11 justify-start gap-3 rounded-lg px-3"
+                                      onClick={() => {
+                                        setSelectedReport(name);
+                                        setOpenNavGroup(group.title);
+                                        navigate("reports");
+                                        setMobileNavOpen(false);
+                                      }}
+                                    >
+                                      <Icon data-icon="inline-start" />
+                                      {name}
+                                    </Button>
+                                  ))
+                                : entries.map(({ id, label, icon: Icon }) => (
+                                    <Button
+                                      key={id}
+                                      variant={page === id ? "secondary" : "ghost"}
+                                      aria-current={page === id ? "page" : undefined}
+                                      className="h-11 justify-start gap-3 rounded-lg px-3"
+                                      onClick={() => {
+                                        setOpenNavGroup(group.title);
+                                        navigate(id);
+                                        setMobileNavOpen(false);
+                                      }}
+                                    >
+                                      <Icon data-icon="inline-start" />
+                                      {label}
+                                    </Button>
+                                  ))}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
                     })}
                   </Accordion>
                 </nav>
@@ -1257,10 +1326,10 @@ export function App() {
             </Sheet>
             <aside
               aria-label="Main navigation"
-              className="relative z-20 hidden w-16 shrink-0 md:block"
+              className={`relative hidden shrink-0 transition-[width] duration-200 md:block ${sidebarExpanded ? "w-60" : "w-16"}`}
             >
               <div
-                className={`absolute inset-y-0 left-0 flex flex-col overflow-hidden border-r bg-background p-3 transition-[width,box-shadow] duration-200 ${sidebarExpanded ? "w-60 shadow-lg" : "w-16"}`}
+                className="flex h-full w-full flex-col overflow-hidden border-r bg-background p-3"
                 onMouseEnter={() => setSidebarHovered(true)}
                 onMouseLeave={() => setSidebarHovered(false)}
                 onPointerDownCapture={() => {
@@ -1339,7 +1408,7 @@ export function App() {
                   <div
                     aria-hidden={!sidebarExpanded}
                     inert={!sidebarExpanded}
-                    className={`absolute inset-y-0 left-0 w-[13.5rem] overflow-x-hidden overflow-y-auto transition-opacity duration-150 ${sidebarExpanded ? "opacity-100" : "pointer-events-none opacity-0"}`}
+                    className={`absolute inset-y-0 left-0 w-[13.5rem] overflow-x-hidden overflow-y-auto px-1 transition-opacity duration-150 ${sidebarExpanded ? "opacity-100" : "pointer-events-none opacity-0"}`}
                   >
                 <>
                   <div className="border-b border-border">
@@ -1357,67 +1426,74 @@ export function App() {
                     value={openNavGroup ? [openNavGroup] : []}
                     onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}
                   >
-                    {navigationGroupsBeforeReports.map((group) => {
+                    {navigationGroups.map((group) => {
                       const entries = permittedNav.filter(({ id }) =>
                         group.pages.includes(id),
                       );
                       if (!entries.length) return null;
+                      const isReports = group.title === "Reports";
                       return (
                         <AccordionItem
                           key={group.title}
                           value={group.title}
-                          className="border-border"
+                          className={
+                            isReports && page === "reports"
+                              ? "border-primary"
+                              : "border-border"
+                          }
                         >
                           <AccordionTrigger
-                            className={`${sidebarHeadingClassName} flex items-center gap-3`}
+                            className={`${sidebarHeadingClassName} flex items-center gap-3 ${isReports && page === "reports" || entries.some(({ id }) => page === id) ? "border-primary bg-secondary text-secondary-foreground" : ""}`}
                           >
                             <group.icon data-icon="inline-start" />
                             {group.title}
                           </AccordionTrigger>
                           <AccordionContent className="pb-3 pt-2">
                             <div className="flex flex-col gap-1 px-1">
-                              {entries.map(({ id, label, icon: Icon }) => (
-                                <Button
-                                  key={id}
-                                  variant={page === id ? "secondary" : "ghost"}
-                                  aria-current={page === id ? "page" : undefined}
-                                  className="h-11 justify-start gap-3 rounded-lg px-3 text-sm"
-                                  onClick={() => {
-                                    setOpenNavGroup(group.title);
-                                    navigate(id);
-                                  }}
-                                >
-                                  <Icon />
-                                  {label}
-                                </Button>
-                              ))}
+                              {isReports
+                                ? reportNavigationItems.map(({ name, icon: Icon }) => (
+                                    <Button
+                                      key={name}
+                                      variant={
+                                        page === "reports" && selectedReport === name
+                                          ? "secondary"
+                                          : "ghost"
+                                      }
+                                      aria-current={
+                                        page === "reports" && selectedReport === name
+                                          ? "page"
+                                          : undefined
+                                      }
+                                      className="h-11 justify-start gap-3 rounded-lg px-3 text-sm"
+                                      onClick={() => {
+                                        setSelectedReport(name);
+                                        setOpenNavGroup(group.title);
+                                        navigate("reports");
+                                      }}
+                                    >
+                                      <Icon data-icon="inline-start" />
+                                      {name}
+                                    </Button>
+                                  ))
+                                : entries.map(({ id, label, icon: Icon }) => (
+                                    <Button
+                                      key={id}
+                                      variant={page === id ? "secondary" : "ghost"}
+                                      aria-current={page === id ? "page" : undefined}
+                                      className="h-11 justify-start gap-3 rounded-lg px-3 text-sm"
+                                      onClick={() => {
+                                        setOpenNavGroup(group.title);
+                                        navigate(id);
+                                      }}
+                                    >
+                                      <Icon data-icon="inline-start" />
+                                      {label}
+                                    </Button>
+                                  ))}
                             </div>
                           </AccordionContent>
                         </AccordionItem>
                       );
-                    })}
-                  </Accordion>
-                  {permittedNav.some(({ id }) => id === "reports") && <div className="border-b border-border">
-                    <Button
-                      variant="ghost"
-                      aria-current={page === "reports" ? "page" : undefined}
-                      className={`${sidebarHeadingClassName} flex w-full items-center justify-start gap-3`}
-                      onClick={() => navigate("reports")}
-                    ><FileBarChart />Reports</Button>
-                  </div>}
-                  <Accordion
-                    value={openNavGroup ? [openNavGroup] : []}
-                    onValueChange={(value) => setOpenNavGroup(value[0] ?? "")}
-                  >
-                    {navigationGroupsAfterReports.map((group) => {
-                      const entries = permittedNav.filter(({ id }) => group.pages.includes(id));
-                      if (!entries.length) return null;
-                      return <AccordionItem key={group.title} value={group.title} className="border-border">
-                        <AccordionTrigger className={`${sidebarHeadingClassName} flex items-center gap-3`}><group.icon data-icon="inline-start" />{group.title}</AccordionTrigger>
-                        <AccordionContent className="pb-3 pt-2"><div className="flex flex-col gap-1 px-1">
-                          {entries.map(({ id, label, icon: Icon }) => <Button key={id} variant={page === id ? "secondary" : "ghost"} aria-current={page === id ? "page" : undefined} className="h-11 justify-start gap-3 rounded-lg px-3 text-sm" onClick={() => { setOpenNavGroup(group.title); navigate(id); }}><Icon />{label}</Button>)}
-                        </div></AccordionContent>
-                      </AccordionItem>;
                     })}
                   </Accordion>
                 </>
@@ -1717,8 +1793,8 @@ export function App() {
               {page === "reports" && (
                 <Suspense fallback={<PageLoading />}>
                   <FullReportsPage
+                    key={selectedReport}
                     reportName={selectedReport}
-                    onReportChange={setSelectedReport}
                     challans={challans}
                     items={items}
                     accounts={accounts}

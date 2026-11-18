@@ -593,19 +593,49 @@ function createOfficeStore(db) {
     return db.prepare(`SELECT code, description, parent_code AS parentCode,
       opening_balance AS openingBalance, opening_balance_side AS openingBalanceSide,
       account_type AS accountType, phone_no AS phoneNo, ntn_number AS ntnNumber, mobile_no AS mobileNo,
-      gst_no AS gstNo, address, party_type AS partyType, cash_bank AS cashBank FROM accounts ORDER BY code`).all()
+      gst_no AS gstNo, address, party_type AS partyType, cash_bank AS cashBank FROM accounts ORDER BY rowid`).all()
   }
 
   function nextAccountCode(parentCode = '') {
+    if (!parentCode) {
+      const topRoots = db.prepare('SELECT code FROM accounts WHERE parent_code IS NULL').all()
+        .map((row) => String(row.code))
+        .filter((code) => /^\d+$/.test(code))
+      const legacyRoots = topRoots.filter((code) => code.length === 4)
+      if (!topRoots.some((code) => code.length === 1) && legacyRoots.length) {
+        const next = Math.max(...legacyRoots.map((code) => Number(code))) + 1000
+        if (String(next).length === 4) return String(next)
+      }
+    }
+    if (/^\d{4}$/.test(parentCode)) {
+      const parent = db.prepare('SELECT parent_code AS parentCode FROM accounts WHERE code=?').get(parentCode)
+      const children = db.prepare('SELECT code FROM accounts WHERE parent_code=?').all(parentCode)
+        .map((row) => String(row.code))
+        .filter((code) => /^\d{4}$/.test(code))
+      if (!parent?.parentCode) {
+        if (children.length) {
+          const next = Math.max(...children.map((code) => Number(code))) + 100
+          if (String(next).length === 4) return String(next)
+        }
+        return String(Number(parentCode) + 100)
+      }
+      if (children.length) {
+        const next = Math.max(...children.map((code) => Number(code))) + 1
+        if (String(next).length === 4) return String(next)
+      }
+      return String(Number(parentCode) + 1)
+    }
     const segmentLength = parentCode.length === 0
       ? 1
       : parentCode.length === 1
         ? 1
         : parentCode.length === 2
           ? 2
-          : parentCode.length === 4
-            ? 4
-            : 2
+          : parentCode.length === 4 && parentCode.endsWith('00')
+            ? 100
+            : parentCode.length === 4
+              ? 4
+              : 2
     const suffixes = db.prepare(parentCode
       ? 'SELECT code FROM accounts WHERE parent_code=?'
       : 'SELECT code FROM accounts WHERE parent_code IS NULL')
@@ -756,9 +786,9 @@ function createOfficeStore(db) {
         code: required(input.code, 'Item code'), description: required(input.description, 'Description'),
         unit: String(input.unit || 'Unit').trim(), itemRate: nonNegative(input.itemRate ?? input.saleRate ?? 0, 'Item rate'), saleRate: nonNegative(input.saleRate, 'Sale rate'),
         purchaseRate: nonNegative(input.purchaseRate, 'Purchase rate'),
-        brand: String(input.brand || 'Unbranded').trim(), category: String(input.category || 'Uncategorized').trim(),
+        brand: String(input.brand || 'Unbranded').trim(),
+        category: String(input.category || 'Uncategorized').trim(),
       }
-      if (item.brand.length > 100 || item.category.length > 100) throw new Error('Brand and category names must be 100 characters or fewer')
       if (!item.unit) item.unit = 'Unit'
       const quantityToAdd = input.quantityToAdd == null || input.quantityToAdd === '' ? 0 : nonNegative(input.quantityToAdd, 'Quantity to add')
       const location = quantityToAdd > 0 ? knownLocation(input.location) : ''
@@ -781,8 +811,6 @@ function createOfficeStore(db) {
           VALUES (?, 'OPENING', 'OPENING', ?, ?, ?, ?, ?)`).run(new Date().toISOString().slice(0, 10), item.code, location, quantityToAdd, merged.purchaseRate, amount)
         recordAudit('OPENING_BALANCE_SAVE', `${item.code} · ${location} · ${quantityToAdd}`)
       }
-      db.prepare('INSERT OR IGNORE INTO item_brands(name) VALUES (?)').run(merged.brand)
-      db.prepare('INSERT OR IGNORE INTO item_categories(name) VALUES (?)').run(merged.category)
       return listItems().find((row) => row.code === item.code)
     })()
   }

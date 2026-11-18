@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Download, FileSpreadsheet, FileText, Printer } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Printer, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,31 +36,36 @@ import {
   PrintPreviewDialog,
   requestPrint,
 } from "@/features/printing/PrintDocument";
-import { REPORT_NAMES } from "@/lib/report-names";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Field } from "@/components/forms/Fields";
+import { Field, FormSelect } from "@/components/forms/Fields";
 import { formatMoney as money } from "@/lib/formatters";
 import { createXlsx } from "@/lib/xlsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type ReportRow = Record<string, string | number>;
+type ReportCriteria = {
+  from: string;
+  to: string;
+  filter: string;
+  party: string;
+  item: string;
+  location: string;
+  brand: string;
+  category: string;
+};
 
 type ReportDestination = "items" | "accounts" | "banks";
 
 const AS_OF_REPORTS = [
-  "Stock Summary",
-  "Balance Sheet",
-  "Receivables",
-  "Payables",
+  "Aging Report",
 ];
-const REPORT_GROUPS = [
-  { label: "Inventory", reports: ["Transit", "Stock Ledger", "Stock Summary", "Stock Report Date Wise", "Stock Report Item Wise", "Item Ledger"] },
-  { label: "Sales & Purchases", reports: ["Company Profitability Report", "Item Profitability Report", "Purchase Register", "Sales Register", "Purchase Report Date Wise", "PC Profit Report", "Party Item Detail", "Party Activity Report"] },
-  { label: "Financial & Ledgers", reports: ["Trial Balance", "Trial Balance Date Wise", "General Ledger", "Ledger", "Balance Sheet", "Profit & Loss", "Party Ledger", "Cash Book", "Bank Book"] },
-  { label: "Receivables", reports: ["Receivables", "Payables"] },
-  { label: "Cheques", reports: ["Post Dated Cheques", "Returned Cheques", "OS Cheques"] },
-] as const;
 function karachiToday() {
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Karachi",
@@ -71,7 +77,20 @@ function karachiToday() {
     parts.find((value) => value.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
+function partyCodesForFilter(accounts: Account[], account: Account) {
+  if (/^(party|parties)$/i.test(account.description.trim())) return true;
+  let parentCode = account.parentCode;
+  while (parentCode) {
+    const parent = accounts.find((candidate) => candidate.code === parentCode);
+    if (!parent) return false;
+    if (/^(party|parties)$/i.test(parent.description.trim())) return true;
+    parentCode = parent.parentCode;
+  }
+  return account.partyType !== "";
+}
 const REPORT_COLUMNS: Record<string, string[]> = {
+  "Stock Report": ["Date", "Document", "Item", "Location", "Quantity In", "Quantity Out", "Balance"],
+  "Aging Report": ["Bill #", "Date", "Cheque ID", "Cheque #", "Cheque date", "Particulars", "Debit", "Credit", "Balance"],
   Transit: ["Date", "Document", "Item", "Location", "Quantity", "Movement"],
   "Company Profitability Report": [
     "Date",
@@ -118,9 +137,9 @@ const REPORT_COLUMNS: Record<string, string[]> = {
   "Stock Summary": ["Item", "Location", "Quantity on hand"],
   "Party Ledger": [
     "Date",
-    "Party",
-    "Activity",
-    "Reference",
+    "Document",
+    "Description",
+    "Reference / Date",
     "Debit",
     "Credit",
     "Balance",
@@ -244,7 +263,6 @@ const REPORT_COLUMNS: Record<string, string[]> = {
 
 export function ReportsPage({
   reportName,
-  onReportChange,
   challans,
   items,
   accounts,
@@ -260,7 +278,6 @@ export function ReportsPage({
   canOpenBanks,
 }: {
   reportName: string;
-  onReportChange: (name: string) => void;
   challans: Challan[];
   items: Item[];
   accounts: Account[];
@@ -275,26 +292,41 @@ export function ReportsPage({
   canOpenAccounts: boolean;
   canOpenBanks: boolean;
 }) {
-  const [reportPickerOpen, setReportPickerOpen] = useState(false);
+  const [filterDialogOpen, setFilterDialogOpen] = useState(true);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [filter, setFilter] = useState("");
+  const [partyFilter, setPartyFilter] = useState("");
+  const [itemFilter, setItemFilter] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [appliedCriteria, setAppliedCriteria] = useState<ReportCriteria | null>(
+    null,
+  );
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const isAsOfReport = AS_OF_REPORTS.includes(reportName);
-  const fromDate = AS_OF_REPORTS.includes(reportName) ? "" : from;
-  const toDate = isAsOfReport ? to || karachiToday() : to;
-  const invalidDateRange = Boolean(fromDate && to && fromDate > to);
+  const fromDate = appliedCriteria?.from ?? "";
+  const toDate = isAsOfReport
+    ? appliedCriteria?.to || karachiToday()
+    : appliedCriteria?.to ?? "";
+  const invalidDateRange = Boolean(!isAsOfReport && from && to && from > to);
   const rows = useMemo(
     () =>
-      invalidDateRange
+      !appliedCriteria
         ? []
         : buildReport(
             reportName,
             { challans, items, accounts, banks, movements, cheques, vouchers },
             fromDate,
             toDate,
-            filter,
+            appliedCriteria.filter,
+            appliedCriteria.party,
+            appliedCriteria.item,
+            appliedCriteria.location,
+            appliedCriteria.brand,
+            appliedCriteria.category,
           ),
     [
       reportName,
@@ -307,7 +339,7 @@ export function ReportsPage({
       vouchers,
       fromDate,
       toDate,
-      filter,
+      appliedCriteria,
       invalidDateRange,
     ],
   );
@@ -316,7 +348,7 @@ export function ReportsPage({
     : (REPORT_COLUMNS[reportName] ?? ["Result"]);
   const isNumericColumn = (column: string) =>
     rows.some((row) => typeof row[column] === "number") ||
-    /amount|balance|debit|credit|quantity|rate|purchase|sale|total|receipt|payment|days outstanding|^lines$/i.test(column);
+    /amount|balance|debit|credit|quantity|rate|purchase|sale|total|receipt|payment|days outstanding|current|days|^lines$/i.test(column);
   const formatValue = (column: string, value: number) => {
     const stockBalance =
       [
@@ -345,40 +377,90 @@ export function ReportsPage({
           index === 0 ? "No records match the selected report filters." : "",
         ),
       ];
-  const printSubtitle = [
+  const selectedParty = accounts.find(
+    (account) => account.code === appliedCriteria?.party,
+  );
+  const selectedItem = items.find(
+    (item) => item.code === appliedCriteria?.item,
+  );
+  const selectedBrand = appliedCriteria?.brand ?? "";
+  const selectedCategory = appliedCriteria?.category ?? "";
+  const appliedFilters = [
     isAsOfReport
-      ? `As of: ${toDate}`
-      : fromDate || to
-        ? `Period: ${fromDate || "no start date"} to ${to || "no end date"}`
-        : "Period: all dates",
-    filter ? `Text filter: “${filter}”` : "",
-    `Records: ${rows.length}`,
+      ? `As of ${toDate}`
+      : fromDate || appliedCriteria?.to
+        ? `${fromDate || "Any start"} to ${appliedCriteria?.to || "Any end"}`
+        : "All dates",
+    appliedCriteria?.party
+      ? `Party: ${selectedParty?.description ?? appliedCriteria?.party}`
+      : reportName === "Party Ledger" || reportName === "Aging Report"
+        ? "All parties"
+        : "",
+    appliedCriteria?.item
+      ? `Item: ${selectedItem ? `${selectedItem.description} (${selectedItem.code})` : appliedCriteria.item}`
+      : reportName === "Stock Report"
+        ? "All items"
+        : "",
+    appliedCriteria?.location
+      ? `Location: ${appliedCriteria.location}`
+      : reportName === "Stock Report"
+        ? "All locations"
+        : "",
+    reportName === "Stock Report"
+      ? `Brand: ${selectedBrand || "All brands"}`
+      : "",
+    reportName === "Stock Report"
+      ? `Category: ${selectedCategory || "All categories"}`
+      : "",
+    appliedCriteria?.filter.trim()
+      ? `Text contains “${appliedCriteria.filter.trim()}”`
+      : "",
+  ].filter(Boolean);
+  const visibleFilters = appliedFilters.filter(
+    (value) =>
+      ![
+        "All dates",
+        "All parties",
+        "All items",
+        "All locations",
+        "Brand: All brands",
+        "Category: All categories",
+      ].includes(value),
+  );
+  const defaultScope = [
+    isAsOfReport
+      ? !appliedCriteria?.to
+        ? `As of ${toDate}`
+        : ""
+      : !fromDate && !appliedCriteria?.to
+        ? "All dates"
+        : "",
+    (reportName === "Party Ledger" || reportName === "Aging Report") &&
+    !appliedCriteria?.party
+      ? "All parties"
+      : "",
+    reportName === "Stock Report" && !appliedCriteria?.item
+      ? "All items"
+      : "",
+    reportName === "Stock Report" && !appliedCriteria?.location
+      ? "All locations"
+      : "",
+    reportName === "Stock Report" && !appliedCriteria?.brand
+      ? "All brands"
+      : "",
+    reportName === "Stock Report" && !appliedCriteria?.category
+      ? "All categories"
+      : "",
   ]
     .filter(Boolean)
-    .join("  |  ");
-  const caution = ["Balance Sheet", "Profit & Loss"].includes(reportName)
-    ? "Classified using account types from the chart of accounts. Unclassified accounts are omitted. Challans create simple accrual entries; check the account setup before relying on these statements."
-    : [
-          "Trial Balance",
-          "Trial Balance Date Wise",
-          "General Ledger",
-          "Ledger",
-          "Party Ledger",
-          "Receivables",
-          "Payables",
-        ].includes(reportName)
-      ? "Includes simple accrual entries derived from purchase and sale challans. Payment vouchers affect balances only when posted to the same party account; payments are not allocated to individual invoices."
-      : [
-            "Company Profitability Report",
-            "Item Profitability Report",
-            "PC Profit Report",
-          ].includes(reportName)
-        ? "This is a simple sales-minus-purchase comparison, not cost-of-goods-sold accounting or validated gross profit."
-        : reportName === "Stock Summary"
-          ? "Quantity on hand is calculated from recorded stock movements through the selected date. Values are not shown because movement rates mix purchase and sale prices."
-          : reportName === "Bank Book"
-            ? "Includes cleared cheque entries posted to each bank’s linked ledger account, plus other entries on accounts whose descriptions contain “bank”. Bank master opening balances remain separate from chart-of-account balances."
-            : "Calculated from records currently stored in this application only.";
+    .join(" · ");
+  const printSubtitle = [...appliedFilters, `Records: ${rows.length}`].join("  |  ");
+  const caution =
+    reportName === "Party Ledger"
+      ? "Transactions include readable party and item details, references, and a running balance."
+      : reportName === "Stock Report"
+        ? "Calculates running quantity from stock movements matching the selected item, brand, category, location, and period."
+        : "Shows party transactions through the selected date. Payments are not allocated to individual bills.";
   const exportCsv = () => {
     const safeCell = (value: string | number) => {
       const text = String(value);
@@ -430,124 +512,323 @@ export function ReportsPage({
       setPdfExporting(false);
     }
   };
+  const restoreDraftFilters = (criteria: ReportCriteria | null = appliedCriteria) => {
+    setFrom(criteria?.from ?? "");
+    setTo(criteria?.to ?? "");
+    setFilter(criteria?.filter ?? "");
+    setPartyFilter(criteria?.party ?? "");
+    setItemFilter(criteria?.item ?? "");
+    setLocationFilter(criteria?.location ?? "");
+    setBrandFilter(criteria?.brand ?? "");
+    setCategoryFilter(criteria?.category ?? "");
+  };
+  const openFilters = () => {
+    restoreDraftFilters();
+    setFilterDialogOpen(true);
+  };
   return (
     <section className="flex flex-col gap-4">
-      <PageHeader title={reportName || "Reports"} description="Choose a report, set its period and filters, then review or export the results." />
-      <div className="grid items-start gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Report filters</CardTitle>
-            <CardDescription>
-              Choose a report and narrow its results.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup className="flex flex-col gap-4">
-              <FormSectionHeading
-                title="Report and period"
-                className="w-full"
-              />
-              <Field label="Report" id="report-name">
-                <Popover open={reportPickerOpen} onOpenChange={setReportPickerOpen}>
-                  <PopoverTrigger render={<Button id="report-name" type="button" variant="outline" aria-label="Choose a report" aria-expanded={reportPickerOpen} className="w-full justify-between font-normal" />}>
-                    <span className={reportName ? "truncate" : "truncate text-muted-foreground"}>{reportName || "Choose a report…"}</span>
-                    <ChevronsUpDown data-icon="inline-end" className="opacity-50" />
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-0">
-                    <Command>
-                      <CommandInput placeholder="Search reports…" />
-                      <CommandList className="max-h-80">
-                        <CommandEmpty>No reports found.</CommandEmpty>
-                        {REPORT_GROUPS.map((group) => (
-                          <CommandGroup key={group.label} heading={group.label}>
-                            {group.reports.filter((name) => REPORT_NAMES.includes(name)).map((name) => (
-                              <CommandItem key={name} value={name} onSelect={() => { onReportChange(name); setReportPickerOpen(false); }}>
-                                <Check className={reportName === name ? "opacity-100" : "opacity-0"} />
-                                {name}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        ))}
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
+      <PageHeader
+        title={reportName || "Reports"}
+        description="Set report filters to preview the data, then refine or export results."
+      />
+      <Dialog
+        open={filterDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setFilterDialogOpen(true);
+          } else if (appliedCriteria) {
+            restoreDraftFilters();
+            setFilterDialogOpen(false);
+          }
+        }}
+      >
+        <DialogContent
+          className="w-[min(94vw,36rem)] max-w-none sm:max-w-none"
+          showCloseButton={Boolean(appliedCriteria)}
+        >
+          <DialogHeader>
+            <DialogTitle>Filter {reportName}</DialogTitle>
+            <DialogDescription>
+              Choose criteria for this report. Your results appear after you apply them.
+            </DialogDescription>
+          </DialogHeader>
+          <FormSectionHeading
+            title={reportName === "Stock Report" ? "Stock criteria" : "Report criteria"}
+            className="w-full"
+          />
+          <FieldGroup className="grid max-h-[60vh] grid-cols-1 gap-4 overflow-y-auto py-1 sm:grid-cols-2">
+            {reportName === "Party Ledger" || reportName === "Aging Report" ? (
+              <Field label="Party" id="dialog-report-party">
+                <FormSelect
+                  id="dialog-report-party"
+                  value={partyFilter}
+                  onChange={setPartyFilter}
+                  options={[
+                    { value: "", label: "All parties" },
+                    ...accounts
+                      .filter((account) =>
+                        partyCodesForFilter(accounts, account) ||
+                        challans.some((challan) => challan.party === account.code),
+                      )
+                      .map((account) => ({
+                        value: account.code,
+                        label: `${account.description} — ${account.code}`,
+                      })),
+                  ]}
+                  placeholder="All parties"
+                  clearable
+                  searchable
+                />
               </Field>
-              {!isAsOfReport && (
-                <Field label="From date" id="report-from">
-                  <DatePicker
-                    id="report-from"
-                    value={from}
-                    onChange={setFrom}
-                    placeholder="Start date"
+            ) : null}
+            {reportName === "Stock Report" ? (
+              <>
+                <Field label="Item" id="dialog-report-item">
+                  <FormSelect
+                    id="dialog-report-item"
+                    value={itemFilter}
+                    onChange={setItemFilter}
+                    options={[
+                      { value: "", label: "All items" },
+                      ...items.map((item) => ({
+                        value: item.code,
+                        label: `${item.code} — ${item.description}`,
+                      })),
+                    ]}
+                    placeholder="All items"
+                    clearable
+                    searchable
                   />
                 </Field>
-              )}
-              <Field
-                label={isAsOfReport ? "As of date" : "To date"}
-                id="report-to"
-              >
-                <DatePicker
-                  id="report-to"
-                  value={to}
-                  onChange={setTo}
-                  placeholder={isAsOfReport ? "Defaults to today" : "End date"}
-                />
+                <Field label="Location" id="dialog-report-location">
+                  <FormSelect
+                    id="dialog-report-location"
+                    value={locationFilter}
+                    onChange={setLocationFilter}
+                    options={[
+                      { value: "", label: "All locations" },
+                      ...[...new Set(movements.map((movement) => movement.location))]
+                        .sort((a, b) => a.localeCompare(b))
+                        .map((location) => ({ value: location, label: location })),
+                    ]}
+                    placeholder="All locations"
+                    clearable
+                    searchable
+                  />
+                </Field>
+                <Field label="Brand" id="dialog-report-brand">
+                  <FormSelect
+                    id="dialog-report-brand"
+                    value={brandFilter}
+                    onChange={setBrandFilter}
+                    options={[
+                      { value: "", label: "All brands" },
+                      ...[
+                        ...new Set(
+                          [
+                            ...items.map((item) => item.brand?.trim() ?? ""),
+                            ...challans.flatMap((challan) =>
+                              challan.lines.map((line) => line.brand.trim()),
+                            ),
+                          ].filter(Boolean),
+                        ),
+                      ]
+                        .sort((a, b) => a.localeCompare(b))
+                        .map((brand) => ({ value: brand, label: brand })),
+                    ]}
+                    placeholder="All brands"
+                    clearable
+                    searchable
+                  />
+                </Field>
+                <Field label="Category" id="dialog-report-category">
+                  <FormSelect
+                    id="dialog-report-category"
+                    value={categoryFilter}
+                    onChange={setCategoryFilter}
+                    options={[
+                      { value: "", label: "All categories" },
+                      ...[
+                        ...new Set(
+                          [
+                            ...items.map((item) => item.category?.trim() ?? ""),
+                            ...challans.flatMap((challan) =>
+                              challan.lines.map((line) => line.category.trim()),
+                            ),
+                          ].filter(Boolean),
+                        ),
+                      ]
+                        .sort((a, b) => a.localeCompare(b))
+                        .map((category) => ({
+                          value: category,
+                          label: category,
+                        })),
+                    ]}
+                    placeholder="All categories"
+                    clearable
+                    searchable
+                  />
+                </Field>
+              </>
+            ) : null}
+            {!isAsOfReport ? (
+              <Field label="From date" id="dialog-report-from">
+                <DatePicker id="dialog-report-from" value={from} onChange={setFrom} placeholder="Start date" />
               </Field>
-              <FormSectionHeading
-                title="Optional text filter"
-                className="w-full"
+            ) : null}
+            <Field label={isAsOfReport ? "As of date" : "To date"} id="dialog-report-to">
+              <DatePicker
+                id="dialog-report-to"
+                value={to}
+                onChange={setTo}
+                placeholder={isAsOfReport ? "Defaults to today" : "End date"}
               />
-              <Field label="Text filter" id="report-filter">
-                <Input
-                  id="report-filter"
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                  placeholder="Item, account, party, document…"
-                />
-              </Field>
-              {invalidDateRange && (
-                <p className="text-sm text-destructive">
-                  Start date must be on or before the end date.
-                </p>
-              )}
-            </FieldGroup>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <Button
-                variant="outline"
-                disabled={!reportName || invalidDateRange}
-                onClick={exportCsv}
-              >
-                <Download data-icon="inline-start" />
-                Export CSV
-              </Button>
-              <Button variant="outline" disabled={!reportName || invalidDateRange} onClick={exportExcel}>
-                <FileSpreadsheet data-icon="inline-start" />
-                Export Excel
-              </Button>
-              <Button variant="outline" disabled={!reportName || invalidDateRange || pdfExporting} onClick={() => void exportPdf()}>
-                <FileText data-icon="inline-start" />
-                {pdfExporting ? "Preparing PDF…" : "Export PDF"}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={!reportName || invalidDateRange}
-                onClick={() => setPrintPreviewOpen(true)}
-              >
-                <Printer data-icon="inline-start" />
-                Print preview
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </Field>
+            {invalidDateRange ? (
+              <p className="text-sm text-destructive sm:col-span-2">
+                Start date must be on or before the end date.
+              </p>
+            ) : null}
+          </FieldGroup>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPartyFilter("");
+                setItemFilter("");
+                setLocationFilter("");
+                setBrandFilter("");
+                setCategoryFilter("");
+                setFrom("");
+                setTo("");
+                setFilter("");
+              }}
+            >
+              Clear filters
+            </Button>
+            <Button
+              disabled={invalidDateRange}
+              onClick={() => {
+                setAppliedCriteria({
+                  from: isAsOfReport ? "" : from,
+                  to,
+                  filter,
+                  party: partyFilter,
+                  item: itemFilter,
+                  location: locationFilter,
+                  brand: brandFilter,
+                  category: categoryFilter,
+                });
+                setFilterDialogOpen(false);
+              }}
+            >
+              Apply filters
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {appliedCriteria ? (
+        <div className="flex flex-col gap-4">
         <Card className="min-w-0">
-          <CardHeader>
-            <CardTitle className="text-base">
-              {rows.length} result{rows.length === 1 ? "" : "s"}
-            </CardTitle>
-            <CardDescription>{caution}</CardDescription>
+          <CardHeader className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <CardTitle className="text-base">
+                {rows.length} result{rows.length === 1 ? "" : "s"}
+              </CardTitle>
+              <CardDescription className="mt-1">{caution}</CardDescription>
+              <div
+                className="mt-2 flex flex-wrap items-center gap-1.5"
+                aria-label="Applied report filters"
+              >
+                {defaultScope && (
+                  <span className="text-xs text-muted-foreground">
+                    {defaultScope}
+                  </span>
+                )}
+                {visibleFilters.length ? (
+                  <>
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      Filters applied
+                    </span>
+                    {visibleFilters.map((appliedFilter) => (
+                      <Badge key={appliedFilter} variant="secondary">
+                        {appliedFilter}
+                      </Badge>
+                    ))}
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit shrink-0 self-start"
+              onClick={openFilters}
+            >
+              <SlidersHorizontal data-icon="inline-start" />
+              Edit filters
+            </Button>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-4 px-4 pb-4 pt-0">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <Field label="Search results" id="report-preview-filter" className="w-full lg:max-w-sm lg:flex-1">
+                  <Input
+                    id="report-preview-filter"
+                    value={filter}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setFilter(value);
+                      setAppliedCriteria((current) =>
+                        current ? { ...current, filter: value } : current,
+                      );
+                    }}
+                    placeholder="Search names or document numbers"
+                  />
+                </Field>
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  role="group"
+                  aria-label="Export and print report"
+                >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!appliedCriteria}
+                  onClick={exportCsv}
+                >
+                  <Download data-icon="inline-start" />
+                  Export CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!appliedCriteria}
+                  onClick={exportExcel}
+                >
+                  <FileSpreadsheet data-icon="inline-start" />
+                  Export Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!appliedCriteria || pdfExporting}
+                  onClick={() => void exportPdf()}
+                >
+                  <FileText data-icon="inline-start" />
+                  {pdfExporting ? "Preparing PDF…" : "Export PDF"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!appliedCriteria}
+                  onClick={() => setPrintPreviewOpen(true)}
+                >
+                  <Printer data-icon="inline-start" />
+                  Print
+                </Button>
+                </div>
+            </div>
             <div className="overflow-x-auto">
               <Table className="min-w-3xl" filterable={false}>
                 <TableHeader>
@@ -568,7 +849,9 @@ export function ReportsPage({
                           typeof value === "string" && column === "Item"
                             ? (() => {
                                 const record = items.find(
-                                  (item) => item.code === value,
+                                  (item) =>
+                                    value === item.code ||
+                                    value.endsWith(`(${item.code})`),
                                 );
                                 return record
                                   ? {
@@ -618,7 +901,7 @@ export function ReportsPage({
                                 {reference.enabled ? (
                                   <Button
                                     variant="link"
-                                    className="h-auto p-0 font-mono font-medium"
+                                    className="h-auto p-0 text-left font-medium"
                                     onClick={() =>
                                       onOpenRecord(
                                         reference.destination,
@@ -626,15 +909,13 @@ export function ReportsPage({
                                       )
                                     }
                                   >
-                                    {reference.code}
+                                    {reference.description}
                                   </Button>
                                 ) : (
-                                  <span className="font-mono font-medium">
-                                    {reference.code}
-                                  </span>
+                                  <span className="font-medium">{reference.description}</span>
                                 )}
                                 <span className="text-xs leading-relaxed text-muted-foreground">
-                                  {reference.description}
+                                  Code: {reference.code}
                                 </span>
                               </div>
                             ) : typeof value === "number" ? (
@@ -664,7 +945,8 @@ export function ReportsPage({
             </div>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      ) : null}
       <PrintDocument
         company={company}
         logo={logo}
@@ -704,6 +986,11 @@ function buildReport(
   from: string,
   to: string,
   filter: string,
+  partyFilter = "",
+  itemFilter = "",
+  locationFilter = "",
+  brandFilter = "",
+  categoryFilter = "",
 ): ReportRow[] {
   const { challans, items, accounts, banks, movements, cheques, vouchers } =
     data;
@@ -866,6 +1153,25 @@ function buildReport(
       );
     }
   }
+  const selectedPartyCodes = new Set<string>();
+  if (partyFilter) {
+    selectedPartyCodes.add(partyFilter);
+    let addedPartyDescendant = true;
+    while (addedPartyDescendant) {
+      addedPartyDescendant = false;
+      for (const account of accounts) {
+        if (
+          account.parentCode &&
+          selectedPartyCodes.has(account.parentCode) &&
+          partyCodes.has(account.code) &&
+          !selectedPartyCodes.has(account.code)
+        ) {
+          selectedPartyCodes.add(account.code);
+          addedPartyDescendant = true;
+        }
+      }
+    }
+  }
   const openingBalance = (code: string) => {
     const account = accounts.find((candidate) => candidate.code === code);
     const initial = account
@@ -894,6 +1200,125 @@ function buildReport(
         .reduce((balance, line) => balance + line.debit - line.credit, 0)
     );
   };
+  const partyStatementRows = (asOfOnly: boolean): ReportRow[] => {
+    const running = new Map(
+      [...partyCodes].map((code) => {
+        const account = accounts.find((candidate) => candidate.code === code);
+        return [
+          code,
+          account
+            ? account.openingBalanceSide === "CREDIT"
+              ? -account.openingBalance
+              : account.openingBalance
+            : 0,
+        ] as const;
+      }),
+    );
+    const partyLines = [...financialLines]
+      .filter((line) => partyCodes.has(line.accountCode))
+      .filter(
+        (line) => !partyFilter || selectedPartyCodes.has(line.accountCode),
+      )
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.voucher.localeCompare(b.voucher),
+      );
+    const rows: ReportRow[] = [];
+    if (!asOfOnly && from) {
+      for (const code of partyCodes) {
+        if (partyFilter && !selectedPartyCodes.has(code)) continue;
+        const balance = openingBalance(code);
+        if (!balance || !has(`${accountDescription(code)} opening balance`)) continue;
+        rows.push({
+          Date: from,
+          Document: "",
+          Description: `${accountDescription(code)} · opening balance`,
+          "Reference / Date": "",
+          Debit: 0,
+          Credit: 0,
+          Balance: balance,
+        });
+      }
+    }
+    for (const line of partyLines) {
+      const balance =
+        (running.get(line.accountCode) ?? 0) + line.debit - line.credit;
+      running.set(line.accountCode, balance);
+      if (asOfOnly ? !throughTo(line.date) : !dated(line.date)) continue;
+      const challan = challans.find(
+        (record) =>
+          record.number === line.voucher &&
+          (record.party === line.accountCode ||
+            `Party: ${record.party}` === line.accountCode),
+      );
+      const cheque = cheques.find(
+        (record) =>
+          record.number === line.voucher ||
+          Boolean(record.checkNumber && record.checkNumber === line.reference),
+      );
+      const party = accountDescription(line.accountCode);
+      const itemDetails = challan?.lines
+        .map((itemLine) => {
+          const item = items.find((record) => record.code === itemLine.itemCode);
+          const label = item
+            ? `${item.description} (${item.code})`
+            : itemLine.itemLabel || itemLine.itemCode;
+          return `${label} × ${itemLine.quantity}`;
+        })
+        .join(", ");
+      const kind = challan
+        ? challan.type === "PURCHASE"
+          ? "Purchase bill"
+          : "Sales invoice"
+        : line.type.replace("JOURNAL VOUCHER", "Journal voucher");
+      const particulars = [
+        kind,
+        party,
+        challan?.description,
+        itemDetails ? `Items: ${itemDetails}` : "",
+        challan?.location ? `Location: ${challan.location}` : "",
+        !challan && line.narration !== party ? line.narration : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const reference =
+        cheque
+          ? `${cheque.checkNumber} · ${cheque.date}`
+          : line.reference && line.reference !== line.voucher
+            ? line.reference
+            : "";
+      if (
+        !has(
+          `${line.accountCode} ${party} ${line.voucher} ${particulars} ${reference} ${cheque?.number ?? ""} ${cheque?.checkNumber ?? ""}`,
+        )
+      )
+        continue;
+      if (asOfOnly) {
+        rows.push({
+          "Bill #": challan?.number ?? "",
+          Date: line.date,
+          "Cheque ID": cheque?.number ?? "",
+          "Cheque #": cheque?.checkNumber ?? "",
+          "Cheque date": cheque?.date ?? "",
+          Particulars: particulars,
+          Debit: line.debit,
+          Credit: line.credit,
+          Balance: balance,
+        });
+      } else {
+        rows.push({
+          Date: line.date,
+          Document: line.voucher,
+          Description: particulars,
+          "Reference / Date": reference,
+          Debit: line.debit,
+          Credit: line.credit,
+          Balance: balance,
+        });
+      }
+    }
+    return rows;
+  };
   const periodTotals = (code: string) =>
     periodLines
       .filter((line) => line.accountCode === code)
@@ -920,13 +1345,7 @@ function buildReport(
       };
     });
   if (
-    [
-      "Transit",
-      "Stock Ledger",
-      "Item Ledger",
-      "Stock Report Date Wise",
-      "Stock Report Item Wise",
-    ].includes(name)
+    ["Stock Report", "Transit", "Stock Ledger", "Item Ledger", "Stock Report Date Wise", "Stock Report Item Wise"].includes(name)
   ) {
     const sorted = [...allMoves].sort((a, b) =>
       name === "Stock Report Item Wise"
@@ -938,31 +1357,52 @@ function buildReport(
     );
     const balance = new Map<string, number>();
     return sorted.reduce<ReportRow[]>((rows, movement) => {
+      if (itemFilter && movement.itemCode !== itemFilter) return rows;
+      if (locationFilter && movement.location !== locationFilter) return rows;
+      const sourceChallan = challans.find(
+        (challan) => challan.number === movement.document,
+      );
+      const sourceLine = sourceChallan?.lines.find(
+        (line) => line.itemCode === movement.itemCode,
+      );
+      const item = items.find((record) => record.code === movement.itemCode);
+      const brand = sourceLine
+        ? sourceLine.brand.trim()
+        : item?.brand?.trim() ?? "";
+      const category = sourceLine
+        ? sourceLine.category.trim()
+        : item?.category?.trim() ?? "";
+      if (
+        (brandFilter && brand !== brandFilter) ||
+        (categoryFilter && category !== categoryFilter)
+      )
+        return rows;
       const key = `${movement.itemCode}\u0000${movement.location}`;
       const current = (balance.get(key) ?? 0) + movement.quantity;
       balance.set(key, current);
-      const itemDescription =
-        items.find((item) => item.code === movement.itemCode)?.description ??
-        "";
+      const itemDescription = item?.description ?? "";
+      const documentDescription = sourceChallan
+        ? `${sourceChallan.type === "PURCHASE" ? "Purchase" : "Sale"} challan · ${sourceChallan.number} · ${accountDescription(sourceChallan.party)}`
+        : `${movement.type.replaceAll("_", " ")} · ${movement.document}`;
       if (
         !dated(movement.date) ||
         !has(
-          `${movement.document} ${movement.itemCode} ${itemDescription} ${movement.location} ${movement.type}`,
+          `${documentDescription} ${movement.itemCode} ${itemDescription} ${movement.location} ${movement.type}`,
         )
       )
         return rows;
       if (name === "Transit")
         rows.push({
           Date: movement.date,
-          Document: movement.document,
-          Item: movement.itemCode,
+          Document: documentDescription,
+          Item: `${itemDescription || movement.itemCode} (${movement.itemCode})`,
           Location: movement.location,
           Quantity: movement.quantity,
           Movement: movement.type,
         });
       else if (name === "Stock Report Item Wise")
         rows.push({
-          Item: movement.itemCode,
+          Item: `${itemDescription || movement.itemCode} (${movement.itemCode})`,
           Date: movement.date,
           Location: movement.location,
           "Quantity In": Math.max(0, movement.quantity),
@@ -972,7 +1412,7 @@ function buildReport(
       else if (name === "Stock Report Date Wise")
         rows.push({
           Date: movement.date,
-          Item: movement.itemCode,
+          Item: `${itemDescription || movement.itemCode} (${movement.itemCode})`,
           Location: movement.location,
           "Quantity In": Math.max(0, movement.quantity),
           "Quantity Out": Math.max(0, -movement.quantity),
@@ -981,8 +1421,8 @@ function buildReport(
       else
         rows.push({
           Date: movement.date,
-          Document: movement.document,
-          Item: movement.itemCode,
+          Document: documentDescription,
+          Item: `${itemDescription || movement.itemCode} (${movement.itemCode})`,
           Location: movement.location,
           "Quantity In": Math.max(0, movement.quantity),
           "Quantity Out": Math.max(0, -movement.quantity),
@@ -1374,48 +1814,10 @@ function buildReport(
           Amount: line.amount,
         })),
       );
-    const partyLines = [...financialLines]
-      .filter((line) => partyCodes.has(line.accountCode))
-      .sort(
-        (a, b) =>
-          a.date.localeCompare(b.date) || a.voucher.localeCompare(b.voucher),
-      );
-    const running = new Map(
-      [...partyCodes].map((code) => {
-        const account = accounts.find((candidate) => candidate.code === code);
-        return [
-          code,
-          account
-            ? account.openingBalanceSide === "CREDIT"
-              ? -account.openingBalance
-              : account.openingBalance
-            : 0,
-        ] as const;
-      }),
-    );
-    return partyLines.flatMap((line) => {
-      const balance =
-        (running.get(line.accountCode) ?? 0) + line.debit - line.credit;
-      running.set(line.accountCode, balance);
-      if (
-        !dated(line.date) ||
-        !has(
-          `${line.accountCode} ${accountDescription(line.accountCode)} ${line.voucher} ${line.narration} ${line.reference}`,
-        )
-      )
-        return [];
-      return [
-        {
-          Date: line.date,
-          Party: accountDescription(line.accountCode),
-          Activity: line.type,
-          Reference: line.voucher,
-          Debit: line.debit,
-          Credit: line.credit,
-          Balance: balance,
-        },
-      ];
-    });
+    return partyStatementRows(false);
+  }
+  if (name === "Aging Report") {
+    return partyStatementRows(true);
   }
   if (name === "Receivables" || name === "Payables") {
     return [...partyCodes]

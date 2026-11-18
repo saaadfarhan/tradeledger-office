@@ -24,10 +24,10 @@ export type Item = {
   code: string;
   description: string;
   unit: string;
+  brand?: string;
+  category?: string;
   saleRate?: number;
   purchaseRate: number;
-  brand: string;
-  category: string;
   itemRate?: number;
   stockQuantity: number;
 };

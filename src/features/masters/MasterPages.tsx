@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Account, Bank, Item, ItemAttributes } from "@/types";
+import type { Account, Bank, Item } from "@/types";
 import { ConfirmActionDialog } from "@/components/feedback/ConfirmActionDialog";
 import { FormSectionHeading } from "@/components/forms/FormSectionHeading";
 import { formatMoney as money } from "@/lib/formatters";
@@ -101,7 +101,20 @@ function buildAccountTree(
       .map((account) => account.code),
   );
   const included = new Set(matches);
-  for (const account of accounts) {
+  const orderedAccounts = [...accounts];
+  const rootAccounts = orderedAccounts
+    .filter(
+      (account) =>
+        !account.parentCode ||
+        !accounts.some((candidate) => candidate.code === account.parentCode),
+    )
+    .sort((a, b) =>
+      a.code.localeCompare(b.code, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  for (const account of orderedAccounts) {
     if (!matches.has(account.code)) continue;
     let parentCode = account.parentCode;
     while (parentCode && !included.has(parentCode)) {
@@ -112,7 +125,7 @@ function buildAccountTree(
     }
   }
   const children = new Map<string, Account[]>();
-  for (const account of accounts) {
+  for (const account of orderedAccounts) {
     if (
       !included.has(account.code) ||
       !account.parentCode ||
@@ -133,15 +146,9 @@ function buildAccountTree(
     visible.push({ account, depth, hasChildren: descendants.length > 0 });
     for (const child of descendants) visit(child, depth + 1);
   };
-  for (const account of accounts) {
-    if (
-      included.has(account.code) &&
-      (!account.parentCode ||
-        !accounts.some((candidate) => candidate.code === account.parentCode))
-    )
-      visit(account, 0);
-  }
-  for (const account of accounts)
+  for (const account of rootAccounts)
+    if (included.has(account.code)) visit(account, 0);
+  for (const account of orderedAccounts)
     if (included.has(account.code) && !visited.has(account.code))
       visit(account, 0);
   return visible;
@@ -353,30 +360,6 @@ export function ItemsTable({
   ) => Promise<void>;
   onDelete: (code: string) => Promise<void>;
 }) {
-  const [attributes, setAttributes] = useState<ItemAttributes>({
-    brands: [],
-    categories: [],
-  });
-  const loadAttributes = useCallback(async () => {
-    try {
-      setAttributes(await window.office.items.attributes());
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not load saved brands and categories",
-      );
-    }
-  }, []);
-  useEffect(() => {
-    void loadAttributes();
-    return window.office.sync.onDataChanged(() => {
-      void loadAttributes();
-    });
-  }, [loadAttributes]);
-  const addAttribute = async (kind: "brand" | "category", value: string) => {
-    setAttributes(await window.office.items.addAttribute({ kind, value }));
-  };
   return (
     <MasterTable
       idKind="item"
@@ -385,8 +368,6 @@ export function ItemsTable({
       columns={[
         "Code",
         "Name",
-        "Brand",
-        "Category",
         "Quantity",
         "Item rate",
         "Purchase rate",
@@ -396,8 +377,6 @@ export function ItemsTable({
       rows={rows.map((row) => [
         row.code,
         row.description,
-        row.brand || "—",
-        row.category || "—",
         String(row.stockQuantity ?? 0),
         row.itemRate ? money(row.itemRate) : "—",
         row.purchaseRate ? money(row.purchaseRate) : "—",
@@ -419,24 +398,6 @@ export function ItemsTable({
           auto: true,
         },
         { key: "description", label: "Name", required: true },
-        {
-          key: "brand",
-          label: "Brand name",
-          type: "persisted-select",
-          optionKind: "brand",
-          options: attributes.brands,
-          searchable: true,
-          required: true,
-        },
-        {
-          key: "category",
-          label: "Category",
-          type: "persisted-select",
-          optionKind: "category",
-          options: attributes.categories,
-          searchable: true,
-          required: true,
-        },
         {
           key: "purchaseRate",
           label: "Purchase rate",
@@ -478,8 +439,6 @@ export function ItemsTable({
         await onSave({
           code: value.code,
           description: value.description,
-          brand: value.brand || "",
-          category: value.category || "",
           unit: value.unit || "Unit",
           purchaseRate: Number(value.purchaseRate),
           itemRate: Number(value.itemRate),
@@ -489,9 +448,7 @@ export function ItemsTable({
           location: value.location || "",
           ...(baseline ? { __baseline: baseline as Partial<Item> } : {}),
         });
-        await loadAttributes();
       }}
-      onCreateOption={addAttribute}
       onDelete={(index) => onDelete(rows[index].code)}
     />
   );
@@ -613,6 +570,36 @@ function nextAccountCode(
   parentCode: string,
   records: Array<Record<string, string>>,
 ) {
+  if (!parentCode) {
+    const topRoots = records
+      .filter((record) => !record.parentCode)
+      .map((record) => record.code)
+      .filter((code) => /^\d+$/.test(code));
+    const legacyRoots = topRoots.filter((code) => code.length === 4);
+    if (!topRoots.some((code) => code.length === 1) && legacyRoots.length) {
+      const next = Math.max(...legacyRoots.map((code) => Number(code))) + 1000;
+      if (String(next).length === 4) return String(next);
+    }
+  }
+  if (/^\d{4}$/.test(parentCode)) {
+    const parent = records.find((record) => record.code === parentCode);
+    const children = records
+      .filter((record) => record.parentCode === parentCode)
+      .map((record) => record.code)
+      .filter((code) => /^\d{4}$/.test(code));
+    if (!parent?.parentCode) {
+      if (children.length) {
+        const next = Math.max(...children.map((code) => Number(code))) + 100;
+        if (String(next).length === 4) return String(next);
+      }
+      return String(Number(parentCode) + 100);
+    }
+    if (children.length) {
+      const next = Math.max(...children.map((code) => Number(code))) + 1;
+      if (String(next).length === 4) return String(next);
+    }
+    return String(Number(parentCode) + 1);
+  }
   const segmentLength =
     parentCode.length === 0
       ? 1
@@ -682,7 +669,7 @@ export function MasterTable({
   const [lastSelections, setLastSelections] = useState<Record<string, string>>(
     {},
   );
-  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
+  const [deleteCode, setDeleteCode] = useState<string | null>(null);
   const startCreate = async () => {
     try {
       setEditIndex(null);
@@ -710,7 +697,9 @@ export function MasterTable({
       );
     }
   };
-  const startEdit = (index: number) => {
+  const startEdit = (code: string) => {
+    const index = records.findIndex((record) => record.code === code);
+    if (index < 0) return;
     setEditIndex(index);
     setBaseline(baselineRecords[index]);
     setValues({
@@ -771,60 +760,103 @@ export function MasterTable({
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <Table>
+            <Table
+              className={treeRows ? "min-w-[56rem] table-fixed" : undefined}
+              filterable={!treeRows}
+              sorting={!treeRows}
+            >
               <TableHeader>
                 <TableRow>
                   {columns.map((column, index) => (
-                    <TableHead key={`${column}-${index}`}>{column}</TableHead>
+                    <TableHead
+                      key={`${column}-${index}`}
+                      className={
+                        treeRows
+                          ? [
+                              "w-[12%]",
+                              "w-[28%]",
+                              "w-[22%]",
+                              "w-[16%]",
+                              "w-[12%]",
+                              "w-[10%]",
+                            ][index]
+                          : undefined
+                      }
+                    >
+                      {column}
+                    </TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row, index) => (
-                  <TableRow key={treeRows?.[index]?.code ?? row[0]}>
+                  <TableRow
+                    key={treeRows?.[index]?.code ?? row[0]}
+                    className={
+                      treeRows
+                        ? "transition-none has-aria-expanded:bg-transparent"
+                        : undefined
+                    }
+                  >
                     {row.map((cell, cellIndex) => (
                       <TableCell
                         key={cellIndex}
-                        className={
+                        className={[
                           cellIndex > 2 && cellIndex < row.length - 1
                             ? "tabular-nums"
-                            : ""
-                        }
+                            : "",
+                          treeRows && cellIndex !== 1
+                            ? "max-w-0 truncate"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        title={treeRows && cellIndex !== 1 ? cell : undefined}
                       >
                         {cellIndex === 1 && treeRows ? (
                           <div
                             className="flex items-center gap-1"
                             style={{
-                              paddingLeft: `${treeRows[index].depth * 22}px`,
+                              paddingLeft: `${(treeRows.find((control) => control.code === row[0])?.depth ?? 0) * 22}px`,
                             }}
                           >
-                            {treeRows[index].depth > 0 && (
+                            {(() => {
+                              const control = treeRows.find((candidate) => candidate.code === row[0]);
+                              return control && control.depth > 0 ? (
                               <CornerDownRight
                                 className="size-4 shrink-0 text-muted-foreground"
                                 aria-hidden="true"
                               />
-                            )}
-                            {treeRows[index].hasChildren && (
+                              ) : null;
+                            })()}
+                            {(() => {
+                              const control = treeRows.find((candidate) => candidate.code === row[0]);
+                              return control?.hasChildren ? (
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
                                 className="size-7 shrink-0"
-                                aria-label={`${treeRows[index].collapsed ? "Expand" : "Collapse"} ${cell}`}
-                                aria-expanded={!treeRows[index].collapsed}
-                                onClick={treeRows[index].onToggle}
+                                aria-label={`${control.collapsed ? "Expand" : "Collapse"} ${cell}`}
+                                aria-expanded={!control.collapsed}
+                                onClick={control.onToggle}
                               >
-                                {treeRows[index].collapsed ? (
+                                {control.collapsed ? (
                                   <ChevronRight />
                                 ) : (
                                   <ChevronDown />
                                 )}
                               </Button>
-                            )}
-                            {!treeRows[index].hasChildren &&
-                              treeRows[index].depth === 0 && (
+                              ) : null;
+                            })()}
+                            {(() => {
+                              const control = treeRows.find((candidate) => candidate.code === row[0]);
+                              return control && !control.hasChildren && control.depth === 0 ? (
                                 <span className="w-7 shrink-0" />
-                              )}
-                            {cell}
+                              ) : null;
+                            })()}
+                            <span className="min-w-0 truncate" title={cell}>
+                              {cell}
+                            </span>
                           </div>
                         ) : (
                           cell
@@ -837,7 +869,11 @@ export function MasterTable({
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => rowAction.onSelect(index)}
+                            onClick={() =>
+                              rowAction.onSelect(
+                                records.findIndex((record) => record.code === row[0]),
+                              )
+                            }
                           >
                             {rowAction.label}
                           </Button>
@@ -847,7 +883,7 @@ export function MasterTable({
                           size="icon-sm"
                           title={`Edit ${row[0]}`}
                           aria-label={`Edit ${row[0]}`}
-                          onClick={() => startEdit(index)}
+                          onClick={() => startEdit(String(row[0]))}
                         >
                           <Pencil />
                         </Button>
@@ -856,7 +892,7 @@ export function MasterTable({
                           size="icon-sm"
                           title={`Delete ${row[0]}`}
                           aria-label={`Delete ${row[0]}`}
-                          onClick={() => setDeleteIndex(index)}
+                          onClick={() => setDeleteCode(String(row[0]))}
                         >
                           <Trash2 />
                         </Button>
@@ -1047,23 +1083,25 @@ export function MasterTable({
         </DialogContent>
       </Dialog>
       <ConfirmActionDialog
-        open={deleteIndex !== null}
+        open={deleteCode !== null}
         onOpenChange={(value) => {
-          if (!value) setDeleteIndex(null);
+          if (!value) setDeleteCode(null);
         }}
-        title={`Delete ${rows[deleteIndex ?? -1]?.[0] ?? "record"}?`}
+        title={`Delete ${deleteCode ?? "record"}?`}
         description="This action cannot be undone."
         onConfirm={() => {
-          const target = deleteIndex;
-          setDeleteIndex(null);
-          if (target !== null)
-            void onDelete(target).catch((error) =>
+          const targetCode = deleteCode;
+          setDeleteCode(null);
+          if (targetCode !== null) {
+            const target = records.findIndex((record) => record.code === targetCode);
+            if (target >= 0) void onDelete(target).catch((error) =>
               toast.error(
                 error instanceof Error
                   ? error.message
                   : "Could not delete record",
               ),
             );
+          }
         }}
       />
     </>

@@ -18,6 +18,19 @@ test('account codes follow the numeric hierarchy', (t) => {
   assert.ok(accounts.some((account) => account.code === '1101' && account.description === 'Cash'))
 })
 
+test('legacy four-digit account codes keep their parent hierarchy', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-legacy-account-codes-'))
+  const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))
+  t.after(() => { store.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+
+  store.saveAccount({ code: '1000', description: 'Assets', accountType: 'ASSET' })
+  store.saveAccount({ code: '1100', description: 'Cash', parentCode: '1000', accountType: 'ASSET' })
+  store.saveAccount({ code: '1200', description: 'Bank', parentCode: '1000', accountType: 'ASSET' })
+
+  assert.equal(store.saveAccount({ description: 'Receivable', parentCode: '1000', accountType: 'ASSET' }).code, '1300')
+  assert.equal(store.saveAccount({ description: 'Petty Cash', parentCode: '1100', accountType: 'ASSET' }).code, '1101')
+})
+
 test('stale account edits merge separate fields and reject overlapping changes', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'purchase-sale-conflict-'))
   const store = openOfficeDatabase(path.join(directory, 'office.sqlite'))

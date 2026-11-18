@@ -154,15 +154,13 @@ export function DashboardPage({
             </div>
           </CardHeader>
           <CardContent>
-            <div className="max-h-72 overflow-auto">
-              <Table>
-                <TableHeader><TableRow><TableHead>Brand</TableHead><TableHead className="text-right">Purchases</TableHead><TableHead className="text-right">Sales</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {(dashboard.brandTotals ?? []).map((row) => <TableRow key={row.brand}><TableCell className="font-medium">{row.brand}</TableCell><TableCell className="text-right tabular-nums">{row.purchases == null ? "—" : money(row.purchases)}</TableCell><TableCell className="text-right tabular-nums">{row.sales == null ? "—" : money(row.sales)}</TableCell></TableRow>)}
-                  {!dashboard.brandTotals?.length && <TableRow><TableCell colSpan={3} className="h-20 text-center text-muted-foreground">No purchases or sales recorded today.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
-            </div>
+            <Table tableContainerClassName="max-h-72 overflow-auto">
+              <TableHeader><TableRow><TableHead>Brand</TableHead><TableHead className="text-right">Purchases</TableHead><TableHead className="text-right">Sales</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {(dashboard.brandTotals ?? []).map((row) => <TableRow key={row.brand}><TableCell className="font-medium">{row.brand}</TableCell><TableCell className="text-right tabular-nums">{row.purchases == null ? "—" : money(row.purchases)}</TableCell><TableCell className="text-right tabular-nums">{row.sales == null ? "—" : money(row.sales)}</TableCell></TableRow>)}
+                {!dashboard.brandTotals?.length && <TableRow><TableCell colSpan={3} className="h-20 text-center text-muted-foreground">No purchases or sales recorded today.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
@@ -176,45 +174,43 @@ export function DashboardPage({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="max-h-80 overflow-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Document</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Party</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
+              <Table tableContainerClassName="max-h-80 overflow-auto">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Document</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Party</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(dashboard?.recent ?? []).map((row) => (
+                    <TableRow key={row.number}>
+                      <TableCell>
+                        <div className="font-medium">{row.number}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {row.type}
+                        </div>
+                      </TableCell>
+                      <TableCell>{row.date}</TableCell>
+                      <TableCell>{row.party}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {money(row.total)}
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(dashboard?.recent ?? []).map((row) => (
-                      <TableRow key={row.number}>
-                        <TableCell>
-                          <div className="font-medium">{row.number}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.type}
-                          </div>
-                        </TableCell>
-                        <TableCell>{row.date}</TableCell>
-                        <TableCell>{row.party}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {money(row.total)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!dashboard?.recent.length && (
-                      <TableRow>
-                        <TableCell
-                          colSpan={4}
-                          className="h-24 text-center text-muted-foreground"
-                        >
-                          No challans recorded yet.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                  ))}
+                  {!dashboard?.recent.length && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={4}
+                        className="h-24 text-center text-muted-foreground"
+                      >
+                        No challans recorded yet.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
           <Card>
